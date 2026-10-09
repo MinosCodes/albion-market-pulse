@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from albion_flips.analyzer import analyze_crafting, calculate_deal_score
+from albion_flips.analyzer import analyze_crafting, calculate_deal_score, deduplicate_prices
 from albion_flips.config import AppConfig
 from albion_flips.models import FlipOpportunity, PriceRecord
 
@@ -2262,9 +2262,17 @@ class FlipDataStore:
         serialized_blackmarket = serialized_blackmarket[:2500]
 
 
+        # Clean & deduplicate prices first so all tabs are strictly synchronized:
+        clean_prices = deduplicate_prices(
+            prices=prices if prices else [],
+            now=now,
+            fulfilled_orders=self.fulfilled_orders,
+            price_overrides=self.price_overrides,
+        )
+
         serialized_prices = []
-        if prices:
-            for p in prices:
+        if clean_prices:
+            for p in clean_prices:
                 best_date = None
                 if p.sell_price_min > 0 and not p.sell_price_min_date.startswith("0001"):
                     try:
@@ -2300,11 +2308,19 @@ class FlipDataStore:
             serialized_prices.sort(key=lambda x: x["age_minutes"])
             serialized_prices = serialized_prices[:2500]
 
-        # Crafting calculations
+        # Crafting calculations using synchronized clean_prices and overrides
         serialized_crafting: list[dict[str, Any]] = []
         serialized_focus_crafting: list[dict[str, Any]] = []
-        if prices:
-            craft_ops = analyze_crafting(prices, config, focus=False, item_names=ITEM_NAMES)
+        if clean_prices:
+            craft_ops = analyze_crafting(
+                clean_prices,
+                config,
+                focus=False,
+                item_names=ITEM_NAMES,
+                now=now,
+                fulfilled_orders=self.fulfilled_orders,
+                price_overrides=self.price_overrides,
+            )
             for c in craft_ops[:500]:
                 serialized_crafting.append({
                     "item_id": c.item_id,
@@ -2324,7 +2340,15 @@ class FlipDataStore:
                     "enchant": c.enchant,
                 })
 
-            focus_craft_ops = analyze_crafting(prices, config, focus=True, item_names=ITEM_NAMES)
+            focus_craft_ops = analyze_crafting(
+                clean_prices,
+                config,
+                focus=True,
+                item_names=ITEM_NAMES,
+                now=now,
+                fulfilled_orders=self.fulfilled_orders,
+                price_overrides=self.price_overrides,
+            )
             for c in focus_craft_ops[:150]:
                 serialized_focus_crafting.append({
                     "item_id": c.item_id,

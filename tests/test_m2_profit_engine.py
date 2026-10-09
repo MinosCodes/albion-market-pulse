@@ -653,5 +653,87 @@ def test_martlock_cape_crafting() -> None:
     assert "Martlock Crest" in op.ingredients_desc
 
 
+def test_crafting_synchronized_with_scanned_prices_and_overrides() -> None:
+    """Verifies that newer scanned prices and manual overrides overwrite older data in crafting."""
+    cfg = get_test_config()
+    cfg.cities = ["Martlock", "Black Market", "Caerleon"]
+
+    prices = [
+        # Older scan: T4_CLOTH at 1,000
+        PriceRecord(
+            item_id="T4_CLOTH",
+            city="Martlock",
+            quality=1,
+            sell_price_min=1000,
+            sell_price_min_date="2026-10-09T08:00:00",
+            sell_price_max=1000,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+        # Newer scan: T4_CLOTH rose to 2,500
+        PriceRecord(
+            item_id="T4_CLOTH",
+            city="Martlock",
+            quality=1,
+            sell_price_min=2500,
+            sell_price_min_date="2026-10-09T08:30:00",
+            sell_price_max=2500,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+        # Leather
+        PriceRecord(
+            item_id="T4_LEATHER",
+            city="Martlock",
+            quality=1,
+            sell_price_min=1000,
+            sell_price_min_date="2026-10-09T08:00:00",
+            sell_price_max=1000,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+        # Black Market buy order for T4_BAG
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Black Market",
+            quality=1,
+            sell_price_min=0,
+            sell_price_min_date="",
+            sell_price_max=0,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=60000,
+            buy_price_max_date="2026-10-09T08:20:00",
+        ),
+    ]
+
+    # Without overrides: newer cloth price (2500) overwrote older (1000)
+    # T4 Bag material cost: 8 * 2500 + 8 * 1000 = 20000 + 8000 = 28000
+    crafts = analyze_crafting(prices, cfg, focus=False)
+    t4_bag = [c for c in crafts if c.item_id == "T4_BAG"][0]
+    assert t4_bag.material_cost == 28000.0
+    assert t4_bag.sell_city == "Black Market"
+    assert t4_bag.sell_price == 60000
+
+    # With user override: user manually sets T4_CLOTH in Martlock to 500
+    overrides = {("T4_CLOTH", "Martlock", 1): 500}
+    crafts_overridden = analyze_crafting(prices, cfg, focus=False, price_overrides=overrides)
+    t4_bag_ov = [c for c in crafts_overridden if c.item_id == "T4_BAG"][0]
+    # Overridden cost: 8 * 500 + 8 * 1000 = 4000 + 8000 = 12000
+    assert t4_bag_ov.material_cost == 12000.0
+    assert t4_bag_ov.profit_per_item > t4_bag.profit_per_item
+
+
+
 
 

@@ -99,24 +99,18 @@ def compute_daily_volume(
     return total_count / divisor
 
 
-def analyze_flips(
+
+def deduplicate_prices(
     prices: Sequence[PriceRecord],
-    history: Sequence[HistoryRecord],
-    config: AppConfig,
     now: datetime | None = None,
     fulfilled_orders: dict[tuple[str, str, int], datetime] | None = None,
     price_overrides: dict[tuple[str, str, int], int] | None = None,
-) -> list[FlipOpportunity]:
-    """Analyzes market price records and history against config criteria.
+) -> list[PriceRecord]:
+    """Deduplicates prices by (item_id, city, quality), strictly keeping the freshest record.
 
-    Filtering rules applied in strict order:
-    1. Drop any price field equal to 0 or with date 0001-01-01T00:00:00.
-    2. Drop a price whose date is older than max_price_age_minutes relative to injected now.
-    3. Drop flips with profit below min_profit_silver or margin below min_margin_pct.
-    4. Drop flips with margin above max_margin_pct (unrealistic/troll data).
-    5. Drop flips whose destination average daily volume is below min_daily_volume.
-       (If history is missing, keep it with volume=None and history_missing=True).
-    6. Attach risk labels for both cities.
+    Applies any user-marked fulfilled orders (zeroing out dead buy orders) and manual
+    price overrides, ensuring that all modules (flips, Black Market, crafting, and recent prices)
+    operate on an identical, synchronized, and up-to-date price set.
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -124,7 +118,6 @@ def analyze_flips(
         now = now.replace(tzinfo=timezone.utc)
 
     # 1. Deduplicate prices by (item_id, city, quality), strictly keeping the freshest record.
-    # This guarantees that refreshing prices always overwrites older prices.
     deduped_prices: dict[tuple[str, str, int], PriceRecord] = {}
     for p in prices:
         key = (p.item_id, p.city, p.quality)
@@ -217,6 +210,40 @@ def analyze_flips(
                         buy_price_max_date=now.isoformat() if (city == "Black Market" and override_val > 0) else "0001-01-01T00:00:00",
                     )
                 )
+
+    return active_records
+
+
+def analyze_flips(
+    prices: Sequence[PriceRecord],
+    history: Sequence[HistoryRecord],
+    config: AppConfig,
+    now: datetime | None = None,
+    fulfilled_orders: dict[tuple[str, str, int], datetime] | None = None,
+    price_overrides: dict[tuple[str, str, int], int] | None = None,
+) -> list[FlipOpportunity]:
+    """Analyzes market prices and history to produce ranked flip opportunities.
+
+    Applies domain rules in order:
+    1. Deduplicate prices keeping freshest records and applying fulfillment & overrides.
+    2. Filter out stale data older than max_age_hours.
+    3. Drop flips with profit below min_profit_silver or margin below min_margin_pct.
+    4. Drop flips with margin above max_margin_pct (unrealistic/troll data).
+    5. Drop flips whose destination average daily volume is below min_daily_volume.
+       (If history is missing, keep it with volume=None and history_missing=True).
+    6. Attach risk labels for both cities.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
+    active_records = deduplicate_prices(
+        prices=prices,
+        now=now,
+        fulfilled_orders=fulfilled_orders,
+        price_overrides=price_overrides,
+    )
 
     # Group price records by item_id
     prices_by_item: dict[str, list[PriceRecord]] = {}
@@ -467,12 +494,21 @@ def analyze_crafting(
     config: AppConfig,
     focus: bool = False,
     item_names: dict[str, str] | None = None,
+    now: datetime | None = None,
+    fulfilled_orders: dict[tuple[str, str, int], datetime] | None = None,
+    price_overrides: dict[tuple[str, str, int], int] | None = None,
 ) -> list[CraftingOpportunity]:
-    """Calculates crafting and refining profit across royal cities and Caerleon.
+    """Calculates crafting and refining profit across royal cities, Caerleon, and Black Market.
 
     Identifies profitable refining (Planks, Metal Bars, Cloth, Leather, Stone Blocks)
-    and equipment crafting (Bags, Capes, Cursed Staffs, Swords, Bows, Armor sets).
+    and equipment crafting (Bags, Capes, Faction Capes, Weapons, Armors, Royal Gear).
     """
+    clean_prices = deduplicate_prices(
+        prices=prices,
+        now=now,
+        fulfilled_orders=fulfilled_orders,
+        price_overrides=price_overrides,
+    )
     tax_rate = config.tax_rate_premium if config.premium else config.tax_rate_standard
     setup_fee_rate = config.setup_fee_rate
 
@@ -480,15 +516,20 @@ def analyze_crafting(
     highest_sell: dict[str, tuple[int, str]] = {}
     city_prices: dict[tuple[str, str], int] = {}
 
-    for p in prices:
-        if p.sell_price_min <= 0:
-            continue
-        curr = (p.sell_price_min, p.city)
-        if p.item_id not in cheapest_sell or p.sell_price_min < cheapest_sell[p.item_id][0]:
-            cheapest_sell[p.item_id] = curr
-        if p.item_id not in highest_sell or p.sell_price_min > highest_sell[p.item_id][0]:
-            highest_sell[p.item_id] = curr
-        city_prices[(p.item_id, p.city)] = p.sell_price_min
+    for p in clean_prices:
+        if p.sell_price_min > 0:
+            curr = (p.sell_price_min, p.city)
+            if p.item_id not in cheapest_sell or p.sell_price_min < cheapest_sell[p.item_id][0]:
+                cheapest_sell[p.item_id] = curr
+            if p.item_id not in highest_sell or p.sell_price_min > highest_sell[p.item_id][0]:
+                highest_sell[p.item_id] = curr
+            city_prices[(p.item_id, p.city)] = p.sell_price_min
+
+        # If item has a Black Market buy order, crafters can sell directly to Black Market!
+        if p.city == "Black Market" and p.buy_price_max > 0:
+            curr_bm = (p.buy_price_max, p.city)
+            if p.item_id not in highest_sell or p.buy_price_max > highest_sell[p.item_id][0]:
+                highest_sell[p.item_id] = curr_bm
 
     opportunities: list[CraftingOpportunity] = []
 
@@ -542,11 +583,12 @@ def analyze_crafting(
                 if sell_price <= 0:
                     continue
 
+                fee = 0.0 if sell_city == "Black Market" else setup_fee_rate
                 profit = calculate_crafting_profit(
                     sell_price=sell_price,
                     effective_material_cost=effective_cost,
                     tax_rate=tax_rate,
-                    setup_fee_rate=setup_fee_rate,
+                    setup_fee_rate=fee,
                 )
                 margin = calculate_margin(profit, int(round(effective_cost)))
 
@@ -610,11 +652,12 @@ def analyze_crafting(
                 if sell_price <= 0:
                     continue
 
+                fee = 0.0 if sell_city == "Black Market" else setup_fee_rate
                 profit = calculate_crafting_profit(
                     sell_price=sell_price,
                     effective_material_cost=effective_cost,
                     tax_rate=tax_rate,
-                    setup_fee_rate=setup_fee_rate,
+                    setup_fee_rate=fee,
                 )
                 margin = calculate_margin(profit, int(round(effective_cost)))
 
@@ -687,11 +730,12 @@ def analyze_crafting(
                 if sell_price <= 0:
                     continue
 
+                fee = 0.0 if sell_city == "Black Market" else setup_fee_rate
                 profit = calculate_crafting_profit(
                     sell_price=sell_price,
                     effective_material_cost=effective_cost,
                     tax_rate=tax_rate,
-                    setup_fee_rate=setup_fee_rate,
+                    setup_fee_rate=fee,
                 )
                 margin = calculate_margin(profit, int(round(effective_cost)))
 
@@ -758,11 +802,12 @@ def analyze_crafting(
             if sell_price <= 0:
                 continue
 
+            fee = 0.0 if sell_city == "Black Market" else setup_fee_rate
             profit = calculate_crafting_profit(
                 sell_price=sell_price,
                 effective_material_cost=effective_cost,
                 tax_rate=tax_rate,
-                setup_fee_rate=setup_fee_rate,
+                setup_fee_rate=fee,
             )
             margin = calculate_margin(profit, int(round(effective_cost)))
 
@@ -825,11 +870,12 @@ def analyze_crafting(
             if sell_price <= 0:
                 continue
 
+            fee = 0.0 if sell_city == "Black Market" else setup_fee_rate
             profit = calculate_crafting_profit(
                 sell_price=sell_price,
                 effective_material_cost=effective_cost,
                 tax_rate=tax_rate,
-                setup_fee_rate=setup_fee_rate,
+                setup_fee_rate=fee,
             )
             margin = calculate_margin(profit, int(round(effective_cost)))
             name = item_names.get(out_id) if item_names else None
