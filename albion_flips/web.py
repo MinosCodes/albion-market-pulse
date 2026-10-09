@@ -705,6 +705,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <button class="pill-btn" onclick="setBmFilter('fresh_only', this)">🟢 Fresh Only (&le;20m)</button>
       <button class="pill-btn" onclick="setBmFilter('just_arrived', this)">⚡ Just Arrived (&lt;15m)</button>
       <button class="pill-btn" onclick="setBmFilter('instant', this)">⚡ Direct Buy Orders (Instant Cash)</button>
+      <button class="pill-btn" onclick="setBmFilter('royal', this)">👑 Royal Items</button>
       <button class="pill-btn" onclick="setBmFilter('weapons', this)">⚔️ Weapons</button>
       <button class="pill-btn" onclick="setBmFilter('armors', this)">🛡️ Armor & Robes</button>
       <button class="pill-btn" onclick="setBmFilter('accessories', this)">🎒 Bags & Capes</button>
@@ -716,6 +717,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div id="quick-crafting" class="quick-pills" style="display: none;">
       <span class="filter-label">Categories:</span>
       <button class="pill-btn active" onclick="setCraftFilter('all', this)">All Recipes</button>
+      <button class="pill-btn" onclick="setCraftFilter('Royal Crafting', this)">👑 Royal Gear</button>
       <button class="pill-btn" onclick="setCraftFilter('Wood Refining', this)">🪵 Wood / Planks</button>
       <button class="pill-btn" onclick="setCraftFilter('Ore Refining', this)">⛏️ Ore / Bars</button>
       <button class="pill-btn" onclick="setCraftFilter('Fiber Refining', this)">🌾 Fiber / Cloth</button>
@@ -1227,6 +1229,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (bmQuickFilter === 'fresh_only' && Number(item.data_age_minutes) > 20) return false;
         if (bmQuickFilter === 'just_arrived' && Number(item.data_age_minutes) > 15) return false;
         if (bmQuickFilter === 'instant' && item.exit_type !== 'instant_sell') return false;
+        if (bmQuickFilter === 'royal' && !item.item_id.includes('ROYAL')) return false;
         if (bmQuickFilter === 'weapons' && !item.item_id.includes('MAIN_') && !item.item_id.includes('2H_')) return false;
         if (bmQuickFilter === 'armors' && !item.item_id.includes('ARMOR_') && !item.item_id.includes('HEAD_') && !item.item_id.includes('SHOES_')) return false;
         if (bmQuickFilter === 'accessories' && !item.item_id.includes('BAG') && !item.item_id.includes('CAPE') && !item.item_id.includes('OFF_')) return false;

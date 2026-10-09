@@ -709,6 +709,72 @@ def analyze_crafting(
                 )
             )
 
+    # 3. Royal Equipment Crafting (Royal Robe, Royal Jacket, Royal Armor, Royal Cowl, etc.)
+    royal_recipes = [
+        ("T{t}_ARMOR_CLOTH_ROYAL", "Royal Robe", "T{t}_ARMOR_CLOTH_SET1", 4),
+        ("T{t}_ARMOR_LEATHER_ROYAL", "Royal Jacket", "T{t}_ARMOR_LEATHER_SET1", 4),
+        ("T{t}_ARMOR_PLATE_ROYAL", "Royal Armor", "T{t}_ARMOR_PLATE_SET1", 4),
+        ("T{t}_HEAD_CLOTH_ROYAL", "Royal Cowl", "T{t}_HEAD_CLOTH_SET1", 2),
+        ("T{t}_HEAD_LEATHER_ROYAL", "Royal Hood", "T{t}_HEAD_LEATHER_SET1", 2),
+        ("T{t}_HEAD_PLATE_ROYAL", "Royal Helmet", "T{t}_HEAD_PLATE_SET1", 2),
+        ("T{t}_SHOES_CLOTH_ROYAL", "Royal Sandals", "T{t}_SHOES_CLOTH_SET1", 2),
+        ("T{t}_SHOES_LEATHER_ROYAL", "Royal Shoes", "T{t}_SHOES_LEATHER_SET1", 2),
+        ("T{t}_SHOES_PLATE_ROYAL", "Royal Boots", "T{t}_SHOES_PLATE_SET1", 2),
+    ]
+
+    for template, label, base_tpl, sigil_qty in royal_recipes:
+        for tier in (4, 5, 6, 7, 8):
+            out_id = template.format(t=tier)
+            base_id = base_tpl.format(t=tier)
+            sigil_id = f"QUESTITEM_TOKEN_ROYAL_T{tier}"
+
+            base_p = cheapest_sell.get(base_id, (0, ""))[0]
+            sigil_p = cheapest_sell.get(sigil_id, (0, ""))[0]
+
+            if base_p <= 0 or sigil_p <= 0:
+                continue
+
+            mat_cost = base_p + (sigil_qty * sigil_p)
+            effective_cost = (base_p * (1.0 - eq_rrr)) + (sigil_qty * sigil_p)
+
+            if out_id not in highest_sell:
+                continue
+            sell_price, sell_city = highest_sell[out_id]
+            if sell_price <= 0:
+                continue
+
+            profit = calculate_crafting_profit(
+                sell_price=sell_price,
+                effective_material_cost=effective_cost,
+                tax_rate=tax_rate,
+                setup_fee_rate=setup_fee_rate,
+            )
+            margin = calculate_margin(profit, int(round(effective_cost)))
+            name = item_names.get(out_id) if item_names else None
+            if not name:
+                name = out_id.replace("_", " ").title()
+
+            opportunities.append(
+                CraftingOpportunity(
+                    item_id=out_id,
+                    item_name=name,
+                    craft_type="Royal Crafting",
+                    craft_city="Royal Station",
+                    sell_city=sell_city,
+                    material_cost=float(mat_cost),
+                    effective_cost=float(effective_cost),
+                    sell_price=sell_price,
+                    profit_per_item=float(profit),
+                    margin_pct=float(margin),
+                    resource_return_rate=0.0,
+                    ingredients_desc=f"1x Base Gear + {sigil_qty}x Royal Sigil T{tier}",
+                    city_bonus=False,
+                    focus=focus,
+                    tier=tier,
+                    enchant=0,
+                )
+            )
+
     opportunities.sort(key=lambda x: x.profit_per_item, reverse=True)
     return opportunities
 
