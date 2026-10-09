@@ -471,19 +471,111 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       animation: slide-in 0.3s ease-out;
       pointer-events: auto;
     }
-    @keyframes slide-in {
-      from { transform: translateX(100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
+    /* Top Progress Bar for API Calls */
+    #top-progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      width: 0%;
+      background: linear-gradient(90deg, #f59e0b, #10b981);
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.7);
+      z-index: 9999;
+      opacity: 0;
+      transition: width 0.35s ease, opacity 0.4s ease;
+      pointer-events: none;
+    }
+
+    /* Sync Indicator Badge in Header */
+    .sync-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      padding: 4px 11px;
+      border-radius: 999px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      background: #1a1f30;
+      color: #94a3b8;
+      border: 1px solid var(--border);
+    }
+    .sync-indicator.syncing {
+      background: rgba(245, 158, 11, 0.16);
+      color: #f59e0b;
+      border-color: #f59e0b;
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.35);
+    }
+    .sync-indicator.syncing .sync-dot {
+      background: #f59e0b;
+      animation: pulse-dot-anim 0.8s infinite alternate;
+    }
+    .sync-indicator.synced {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border-color: #10b981;
+      box-shadow: 0 0 14px rgba(16, 185, 129, 0.45);
+    }
+    .sync-indicator.synced .sync-dot {
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+    }
+    .sync-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #64748b;
+      display: inline-block;
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    /* Refresh Button States & Animations */
+    .btn-refreshing {
+      background: #1e293b !important;
+      color: #f59e0b !important;
+      border-color: #f59e0b !important;
+      cursor: not-allowed;
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.35) !important;
+    }
+    .btn-refreshing .refresh-icon {
+      display: inline-block;
+      animation: spin-anim 0.9s linear infinite;
+    }
+    .btn-success-flash {
+      background: #064e3b !important;
+      color: #34d399 !important;
+      border-color: #10b981 !important;
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.6) !important;
+      transition: all 0.3s ease;
+    }
+    @keyframes spin-anim {
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes pulse-dot-anim {
+      from { transform: scale(0.85); opacity: 0.6; }
+      to { transform: scale(1.25); opacity: 1; }
+    }
+    .flash-highlight {
+      animation: text-flash 1.8s ease-out;
+    }
+    @keyframes text-flash {
+      0% { color: #34d399; text-shadow: 0 0 10px #10b981; }
+      100% { color: var(--text); text-shadow: none; }
     }
   </style>
 </head>
 <body>
+  <div id="top-progress-bar"></div>
 
   <div class="header-bar">
     <h1>
       <span>⚔️ Albion Market & Crafting Analyzer</span>
     </h1>
     <div class="status-container">
+      <div id="sync-indicator" class="sync-indicator" title="AODP Market API Sync Status">
+        <span class="sync-dot"></span>
+        <span id="sync-text">Live Sync</span>
+      </div>
       <div class="status-badge">
         <span class="pulse-dot"></span>
         <span id="server-badge">Europe Live</span>
@@ -495,7 +587,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         🔔 Alerts: OFF
       </button>
       <button id="btn-refresh" class="btn" onclick="triggerManualRefresh()">
-        <span>↻</span> Fetch Live Data
+        <span class="refresh-icon">↻</span> <span id="btn-refresh-text">Fetch Live Data</span>
       </button>
     </div>
   </div>
@@ -1347,6 +1439,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     let prevBmNewCount = -1;
+    let lastSeenRefresh = null;
 
     async function fetchFlips() {
       try {
@@ -1356,6 +1449,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         
         document.getElementById('server-badge').textContent = (data.server || 'Europe').toUpperCase() + ' LIVE';
         if (data.last_refresh) {
+          if (lastSeenRefresh && data.last_refresh !== lastSeenRefresh) {
+            flashSyncSuccess();
+          }
+          lastSeenRefresh = data.last_refresh;
           document.getElementById('last-refresh').textContent = data.last_refresh;
         }
 
@@ -1476,31 +1573,104 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
 
-    async function triggerManualRefresh() {
+    function flashSyncSuccess() {
+      const syncInd = document.getElementById('sync-indicator');
+      const syncText = document.getElementById('sync-text');
+      const lastRefElem = document.getElementById('last-refresh');
+
+      if (syncInd) syncInd.className = 'sync-indicator synced';
+      if (syncText) syncText.textContent = '✓ Synced Just Now';
+      if (lastRefElem) {
+        lastRefElem.classList.remove('flash-highlight');
+        void lastRefElem.offsetWidth; // trigger reflow
+        lastRefElem.classList.add('flash-highlight');
+      }
+
+      setTimeout(() => {
+        if (syncInd && !syncInd.classList.contains('syncing')) {
+          syncInd.className = 'sync-indicator';
+          if (syncText) syncText.textContent = 'Live Sync';
+        }
+      }, 3000);
+    }
+
+    function setApiRefreshing(isRefreshing, customMsg) {
+      const bar = document.getElementById('top-progress-bar');
       const btn = document.getElementById('btn-refresh');
-      btn.disabled = true;
-      btn.innerHTML = '<span>↻</span> Refreshing...';
+      const btnText = document.getElementById('btn-refresh-text');
+      const syncInd = document.getElementById('sync-indicator');
+      const syncText = document.getElementById('sync-text');
+
+      if (isRefreshing) {
+        if (bar) {
+          bar.style.opacity = '1';
+          bar.style.width = '70%';
+        }
+        if (btn) {
+          btn.disabled = true;
+          btn.classList.add('btn-refreshing');
+          btn.classList.remove('btn-success-flash');
+        }
+        if (btnText) btnText.textContent = customMsg || 'Refreshing API...';
+        if (syncInd) syncInd.className = 'sync-indicator syncing';
+        if (syncText) syncText.textContent = 'Querying AODP...';
+      } else {
+        // Visual indicator when the API call ends
+        if (bar) {
+          bar.style.width = '100%';
+          setTimeout(() => {
+            bar.style.opacity = '0';
+            setTimeout(() => { bar.style.width = '0%'; }, 400);
+          }, 350);
+        }
+        if (btn) {
+          btn.classList.remove('btn-refreshing');
+          btn.classList.add('btn-success-flash');
+        }
+        if (btnText) btnText.textContent = '✓ Live Data Updated!';
+
+        flashSyncSuccess();
+
+        // Reset button state smoothly after 2.5s
+        setTimeout(() => {
+          if (btn) {
+            btn.disabled = false;
+            btn.classList.remove('btn-success-flash');
+          }
+          if (btnText) btnText.textContent = 'Fetch Live Data';
+        }, 2500);
+      }
+    }
+
+    async function triggerManualRefresh() {
+      setApiRefreshing(true, 'Querying AODP Prices...');
 
       try {
         const res = await fetch('/api/refresh', { method: 'POST' });
         if (res.ok) {
           const data = await res.json();
           flipsData = data.flips || [];
+          blackmarketData = data.blackmarket || [];
           craftingData = data.crafting || [];
           focusCraftingData = data.focus_crafting || [];
           pricesData = data.recent_prices || [];
           if (data.last_refresh) {
             document.getElementById('last-refresh').textContent = data.last_refresh;
+            lastSeenRefresh = data.last_refresh;
           }
           checkBrowserNotifications(flipsData, data.last_refresh);
           renderCurrentView();
 
+          setApiRefreshing(false);
+          showToast(`✓ <strong>API Refresh Complete:</strong> Synced ${flipsData.length} flips & ${blackmarketData.length} Black Market deals.`);
+        } else {
+          setApiRefreshing(false);
+          showToast(`⚠️ <strong>API Notice:</strong> Server returned HTTP ${res.status}`);
         }
       } catch (err) {
         console.error('Error triggering refresh:', err);
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<span>↻</span> Fetch Live Data';
+        setApiRefreshing(false);
+        showToast(`❌ <strong>Sync Failed:</strong> Could not connect to local market server.`);
       }
     }
 
