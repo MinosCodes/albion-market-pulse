@@ -175,6 +175,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       color: white;
       border-color: var(--blue);
     }
+    .tab-btn.tab-advisor-btn {
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.45);
+      color: #c7d2fe;
+    }
+    .tab-btn.tab-advisor-btn:hover {
+      background: rgba(99, 102, 241, 0.28);
+      border-color: #818cf8;
+      color: #ffffff;
+    }
+    .tab-btn.tab-advisor-btn.active {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%) !important;
+      color: #ffffff !important;
+      border-color: #a5b4fc !important;
+      box-shadow: 0 0 14px rgba(124, 58, 237, 0.55) !important;
+    }
 
     .filter-panel {
       background: var(--card-bg);
@@ -808,7 +824,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </button>
     <button id="tab-crafting" class="tab-btn" onclick="switchTab('crafting')">🔨 Crafting & Refining Profit</button>
     <button id="tab-prices" class="tab-btn" onclick="switchTab('prices')">📡 Live Scanned Prices</button>
-    <button id="tab-advisor" class="tab-btn" style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: #fff; border-color: #6366f1;" onclick="switchTab('advisor')">🧙‍♂️ AI Market Advisor</button>
+    <button id="tab-advisor" class="tab-btn tab-advisor-btn" onclick="switchTab('advisor')">🧙‍♂️ AI Market Advisor</button>
   </div>
 
   <div class="filter-panel">
@@ -1067,6 +1083,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <tr><td colspan="7" style="text-align: center; padding: 24px; color: var(--text-muted);">Loading live captured prices...</td></tr>
       </tbody>
     </table>
+  </div>
+
   <!-- VIEW 4: AI MARKET ADVISOR -->
   <div id="view-advisor" style="display: none;">
     <div class="advisor-container">
@@ -1132,6 +1150,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <span id="page-current" style="font-weight: 600; color: var(--text);">Page 1</span>
       <button id="btn-next" class="btn btn-secondary" onclick="nextPage()" disabled>Next ▶</button>
     </div>
+  </div>
+
   <!-- OVERRIDES MANAGER MODAL -->
   <div id="overrides-modal" class="modal-overlay" style="display: none;" onclick="closeOverridesModal(event)">
     <div class="modal-box" onclick="event.stopPropagation()">
@@ -1335,7 +1355,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       document.getElementById('tab-crafting').className = 'tab-btn' + (tab === 'crafting' ? ' active' : '');
       document.getElementById('tab-prices').className = 'tab-btn' + (tab === 'prices' ? ' active' : '');
       const tabAdv = document.getElementById('tab-advisor');
-      if (tabAdv) tabAdv.className = 'tab-btn' + (tab === 'advisor' ? ' active' : '');
+      if (tabAdv) tabAdv.className = 'tab-btn tab-advisor-btn' + (tab === 'advisor' ? ' active' : '');
 
       document.getElementById('view-flips').style.display = (tab === 'flips') ? 'block' : 'none';
       document.getElementById('view-blackmarket').style.display = (tab === 'blackmarket') ? 'block' : 'none';
@@ -1374,6 +1394,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       currentPage = 1;
       if (tab !== 'advisor') {
         renderCurrentView();
+      } else {
+        setTimeout(() => {
+          const inp = document.getElementById('advisor-input');
+          if (inp) inp.focus();
+        }, 50);
       }
     }
 
