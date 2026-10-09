@@ -734,6 +734,103 @@ def test_crafting_synchronized_with_scanned_prices_and_overrides() -> None:
     assert t4_bag_ov.profit_per_item > t4_bag.profit_per_item
 
 
+def test_dead_item_filtering_and_daily_profit_velocity() -> None:
+    from albion_flips.analyzer import compute_daily_volume
+    from albion_flips.models import HistoryPoint
+
+    # 1. Test compute_daily_volume with dictionary mapping
+    active_hist = HistoryRecord(
+        location="Martlock",
+        item_id="T4_BAG",
+        quality=1,
+        data=[
+            HistoryPoint(item_count=100, avg_price=5000, timestamp="2026-10-09T00:00:00"),
+            HistoryPoint(item_count=50, avg_price=5000, timestamp="2026-10-08T00:00:00"),
+        ],
+    )
+    dead_hist = HistoryRecord(
+        location="Martlock",
+        item_id="T8_DEAD_WEAPON",
+        quality=1,
+        data=[
+            HistoryPoint(item_count=0, avg_price=0, timestamp="2026-10-09T00:00:00"),
+            HistoryPoint(item_count=0, avg_price=0, timestamp="2026-10-08T00:00:00"),
+        ],
+    )
+
+    hist_map = {
+        ("T4_BAG", "Martlock", 1): active_hist,
+        ("T8_DEAD_WEAPON", "Martlock", 1): dead_hist,
+    }
+
+    vol_active = compute_daily_volume(hist_map, "T4_BAG", "Martlock", quality=1, volume_days=3)
+    assert vol_active == 50.0  # 150 / 3
+
+    vol_dead = compute_daily_volume(hist_map, "T8_DEAD_WEAPON", "Martlock", quality=1, volume_days=3)
+    assert vol_dead == 0.0
+
+    # 2. Test calculate_deal_score for dead items vs high demand
+    dead_score, dead_tier, dead_label = calculate_deal_score(
+        profit_per_item=500000,
+        margin_pct=50.0,
+        data_age_minutes=5.0,
+        avg_daily_volume=0.0,
+        risk="low",
+        exit_type=ExitType.INSTANT_SELL,
+    )
+    assert dead_tier == "D"
+    assert "DEAD ITEM" in dead_label
+
+    active_score, active_tier, active_label = calculate_deal_score(
+        profit_per_item=50000,
+        margin_pct=35.0,
+        data_age_minutes=5.0,
+        avg_daily_volume=80.0,
+        risk="low",
+        exit_type=ExitType.INSTANT_SELL,
+    )
+    assert active_tier == "S"
+    assert "TOP PICK" in active_label
+
+    # 3. Test est_daily_profit in analyze_flips
+    prices = [
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Bridgewatch",
+            quality=1,
+            sell_price_min=1000,
+            sell_price_min_date="2026-10-09T08:20:00",
+            sell_price_max=1000,
+            sell_price_max_date="2026-10-09T08:20:00",
+            buy_price_min=0,
+            buy_price_max=0,
+            buy_price_min_date="",
+            buy_price_max_date="",
+        ),
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Martlock",
+            quality=1,
+            sell_price_min=2000,
+            sell_price_min_date="2026-10-09T08:20:00",
+            sell_price_max=2000,
+            sell_price_max_date="2026-10-09T08:20:00",
+            buy_price_min=0,
+            buy_price_max=0,
+            buy_price_min_date="",
+            buy_price_max_date="",
+        ),
+    ]
+
+    cfg = AppConfig(min_daily_volume=0)
+    flips = analyze_flips(prices, [active_hist], cfg, now=TEST_NOW)
+    assert len(flips) == 1
+    flip = flips[0]
+    assert flip.avg_daily_volume == 50.0
+    # est_daily_profit = profit_per_item * volume
+    assert flip.est_daily_profit == flip.profit_per_item * 50.0
+
+
 
 
 

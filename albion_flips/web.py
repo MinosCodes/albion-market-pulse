@@ -692,6 +692,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <span class="filter-label">Quick Filters:</span>
       <button class="pill-btn active" onclick="setFlipQuickFilter('all', this)">🔥 All Deals</button>
       <button class="pill-btn" onclick="setFlipQuickFilter('top_picks', this)">⭐ Top Picks (S & A Tier)</button>
+      <button class="pill-btn" onclick="setFlipQuickFilter('high_demand', this)">🚀 High Demand (≥5/day)</button>
+      <button class="pill-btn" onclick="setFlipQuickFilter('active_vol', this)">⚡ Active Only (Skip Dead)</button>
       <button class="pill-btn" onclick="setFlipQuickFilter('instant', this)">⚡ Instant Sell (0 Risk)</button>
       <button class="pill-btn" onclick="setFlipQuickFilter('safe', this)">🛡️ Safe Royal Cities</button>
       <button class="pill-btn" onclick="setFlipQuickFilter('fresh', this)">🟢 Fresh Only (&lt;60m)</button>
@@ -702,6 +704,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div id="quick-blackmarket" class="quick-pills" style="display: none;">
       <span class="filter-label">BM Quick Filters:</span>
       <button class="pill-btn active" onclick="setBmFilter('all', this)">🔥 All BM Deals</button>
+      <button class="pill-btn" onclick="setBmFilter('high_demand', this)">🚀 High BM Demand (≥5/day)</button>
+      <button class="pill-btn" onclick="setBmFilter('active_vol', this)">⚡ Active Only (Skip Dead)</button>
       <button class="pill-btn" onclick="setBmFilter('fresh_only', this)">🟢 Fresh Only (&le;20m)</button>
       <button class="pill-btn" onclick="setBmFilter('just_arrived', this)">⚡ Just Arrived (&lt;15m)</button>
       <button class="pill-btn" onclick="setBmFilter('instant', this)">⚡ Direct Buy Orders (Instant Cash)</button>
@@ -802,12 +806,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
       <div>
         <span class="filter-label">Max Age:</span>
-
         <select id="filter-age" class="filter-select" onchange="onFilterChange()">
           <option value="all">Any Age (&le; 2h)</option>
           <option value="15">&lt; 15 mins (Hot 🟢)</option>
           <option value="30">&lt; 30 mins (Fresh 🟢)</option>
           <option value="60">&lt; 60 mins (1 Hour 🟡)</option>
+        </select>
+      </div>
+
+      <div>
+        <span class="filter-label">Liquidity:</span>
+        <select id="filter-volume" class="filter-select" onchange="onFilterChange()">
+          <option value="all">Any Volume</option>
+          <option value="skip_dead">⚡ Skip Dead (&ge; 1/d)</option>
+          <option value="5">🟢 Moderate (&ge; 5/d)</option>
+          <option value="10">🔥 High Demand (&ge; 10/d)</option>
+          <option value="25">🚀 Very High (&ge; 25/d)</option>
+          <option value="50">🌊 Massive (&ge; 50/d)</option>
         </select>
       </div>
 
@@ -832,6 +847,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <th class="num" onclick="sortFlips('profit_per_item', true)">Profit / Item</th>
           <th class="num" onclick="sortFlips('margin_pct', true)">ROI Margin</th>
           <th class="num" onclick="sortFlips('total_profit', true)">Total Profit</th>
+          <th class="num" onclick="sortFlips('est_daily_profit', true)" title="Estimated daily silver turnover based on daily volume">Est. Daily Silver ⚡</th>
           <th class="num" onclick="sortFlips('avg_daily_volume', true)">Daily Vol</th>
           <th class="num" onclick="sortFlips('data_age_minutes', true)">Data Age</th>
           <th onclick="sortFlips('risk')">Route Risk</th>
@@ -839,7 +855,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </tr>
       </thead>
       <tbody id="flips-body">
-        <tr><td colspan="15" style="text-align: center; padding: 24px; color: var(--text-muted);">Connecting to analyzer backend...</td></tr>
+        <tr><td colspan="16" style="text-align: center; padding: 24px; color: var(--text-muted);">Connecting to analyzer backend...</td></tr>
       </tbody>
     </table>
   </div>
@@ -874,6 +890,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <th class="num" onclick="sortBlackMarket('profit_per_item', true)">Profit / Item</th>
           <th class="num" onclick="sortBlackMarket('margin_pct', true)">ROI Margin</th>
           <th class="num" onclick="sortBlackMarket('total_profit', true)">Total Profit</th>
+          <th class="num" onclick="sortBlackMarket('est_daily_profit', true)" title="Estimated daily silver sold to Black Market based on daily volume">Est. Daily Silver ⚡</th>
           <th class="num" onclick="sortBlackMarket('avg_daily_volume', true)">Daily BM Vol</th>
           <th class="num" onclick="sortBlackMarket('data_age_minutes', true)">Data Age</th>
           <th>Action</th>
@@ -1054,6 +1071,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       document.getElementById('filter-buy-city').value = 'all';
       document.getElementById('filter-sell-city').value = 'all';
       if (document.getElementById('filter-age')) document.getElementById('filter-age').value = 'all';
+      if (document.getElementById('filter-volume')) document.getElementById('filter-volume').value = 'all';
       flipQuickFilter = 'all';
       bmQuickFilter = 'all';
       craftCategoryFilter = 'all';
@@ -1212,12 +1230,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (!isNaN(itemAge) && itemAge > Number(fAgeElem.value)) return false;
       }
 
+      const fVolElem = document.getElementById('filter-volume');
+      if (fVolElem && fVolElem.value !== 'all' && (type === 'flip' || type === 'blackmarket')) {
+        const vol = item.avg_daily_volume;
+        if (fVolElem.value === 'skip_dead') {
+          if (vol === null || vol === undefined || Number(vol) < 1.0) return false;
+        } else {
+          const minVol = Number(fVolElem.value);
+          if (vol === null || vol === undefined || Number(vol) < minVol) return false;
+        }
+      }
+
       if (type === 'flip') {
         if (fBuyCity !== 'all' && item.buy_city !== fBuyCity) return false;
         if (fSellCity !== 'all' && item.sell_city !== fSellCity) return false;
 
         // Quick filters for flips
         if (flipQuickFilter === 'top_picks' && !(item.deal_tier === 'S' || item.deal_tier === 'A')) return false;
+        if (flipQuickFilter === 'high_demand' && (item.avg_daily_volume === null || item.avg_daily_volume === undefined || Number(item.avg_daily_volume) < 5.0)) return false;
+        if (flipQuickFilter === 'active_vol' && (item.avg_daily_volume === null || item.avg_daily_volume === undefined || Number(item.avg_daily_volume) < 1.0)) return false;
         if (flipQuickFilter === 'instant' && item.exit_type !== 'instant_sell') return false;
         if (flipQuickFilter === 'safe' && (item.risk === 'high' || item.buy_city === 'Caerleon' || item.sell_city === 'Caerleon')) return false;
         if (flipQuickFilter === 'fresh' && Number(item.data_age_minutes) > 60) return false;
@@ -1227,6 +1258,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (fBuyCity !== 'all' && item.buy_city !== fBuyCity) return false;
 
         // Quick filters for Black Market
+        if (bmQuickFilter === 'high_demand' && (item.avg_daily_volume === null || item.avg_daily_volume === undefined || Number(item.avg_daily_volume) < 5.0)) return false;
+        if (bmQuickFilter === 'active_vol' && (item.avg_daily_volume === null || item.avg_daily_volume === undefined || Number(item.avg_daily_volume) < 1.0)) return false;
         if (bmQuickFilter === 'fresh_only' && Number(item.data_age_minutes) > 20) return false;
         if (bmQuickFilter === 'just_arrived' && Number(item.data_age_minutes) > 15) return false;
         if (bmQuickFilter === 'instant' && item.exit_type !== 'instant_sell') return false;
@@ -1281,7 +1314,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       updatePagination(totalItems, startIndex, pageSlice.length, totalPages);
 
       if (pageSlice.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="14" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
+        tbody.innerHTML = '<tr><td colspan="16" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
           'No flips match the selected filters.<br><small style="margin-top:8px; display:inline-block; color:#64748b;">(Try clicking "Reset Filters" or choose "All Deals")</small>' +
           '</td></tr>';
         return;
@@ -1295,9 +1328,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           ? '<span class="badge badge-order">Sell Order</span>' 
           : '<span class="badge badge-instant">Instant Sell</span>';
         
-        const volDisplay = (f.avg_daily_volume !== null && f.avg_daily_volume !== undefined)
-          ? Math.round(f.avg_daily_volume).toLocaleString() 
-          : '<span title="Low or unknown volume" style="color:var(--yellow)">n/a ⚠</span>';
+        let volDisplay = '';
+        if (f.avg_daily_volume !== null && f.avg_daily_volume !== undefined) {
+          const v = Number(f.avg_daily_volume);
+          if (v >= 50) {
+            volDisplay = `<span class="badge" style="background:#14532d; color:#86efac; font-weight:700;" title="🔥 Extremely high demand: ~${Math.round(v)} sold daily">🔥 ${Math.round(v).toLocaleString()}/d</span>`;
+          } else if (v >= 10) {
+            volDisplay = `<span class="badge" style="background:#1e3a8a; color:#93c5fd; font-weight:600;" title="⚡ Active volume: ~${Math.round(v)} sold daily">⚡ ${Math.round(v).toLocaleString()}/d</span>`;
+          } else if (v >= 2) {
+            volDisplay = `<span style="color:#e2e8f0;" title="Normal volume: ~${Math.round(v)} sold daily">${Math.round(v).toLocaleString()}/d</span>`;
+          } else if (v > 0) {
+            volDisplay = `<span style="color:#fbbf24;" title="Slow moving: ~${v.toFixed(1)} sold daily">🐢 ${v.toFixed(1)}/d</span>`;
+          } else {
+            volDisplay = `<span class="badge" style="background:#450a0a; color:#fca5a5;" title="Dead item: 0 sales in last 3 days">💀 Dead (0/d)</span>`;
+          }
+        } else {
+          volDisplay = '<span style="color:#94a3b8; font-size:0.78rem;" title="Low or unrecorded sales history">💤 No Hist</span>';
+        }
+
+        const estDaily = Number(f.est_daily_profit) || 0;
+        const estDailyDisplay = estDaily > 0 
+          ? `<span class="profit-val" style="font-weight:700;">+${Math.round(estDaily).toLocaleString()}</span>` 
+          : '<span style="color:#64748b;">-</span>';
         
         const tierBadge = f.tier ? `<span class="badge badge-tier">${f.tier}.${f.enchant}</span>` : '';
         const qBadge = f.quality ? `<span class="badge badge-q">Q${f.quality}</span>` : '';
@@ -1331,6 +1383,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td class="num profit-val">+${Math.round(profit).toLocaleString()}</td>
             <td class="num margin-val">+${margin.toFixed(1)}%</td>
             <td class="num profit-val">+${Math.round(totalP).toLocaleString()}</td>
+            <td class="num">${estDailyDisplay}</td>
             <td class="num">${volDisplay}</td>
             <td class="num" ${ageClass}>${age}m ago</td>
             <td><span class="${riskClass}">${(f.risk || 'low').toUpperCase()}</span></td>
@@ -1372,7 +1425,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       updatePagination(totalItems, startIndex, pageSlice.length, totalPages);
 
       if (pageSlice.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="13" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
+        tbody.innerHTML = '<tr><td colspan="14" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
           'No Black Market deals match the selected filters.<br><small style="margin-top:8px; display:inline-block; color:#64748b;">(Try clicking "All BM Deals" or selecting "Any Age")</small>' +
           '</td></tr>';
         return;
@@ -1384,9 +1437,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           ? '<span class="badge badge-order" title="Sell Order listed on Black Market">Sell Order</span>' 
           : '<span class="badge badge-instant" title="Instant Payout: Sold directly into Black Market Buy Order">Instant Sell ⚡</span>';
         
-        const volDisplay = (f.avg_daily_volume !== null && f.avg_daily_volume !== undefined)
-          ? Math.round(f.avg_daily_volume).toLocaleString() 
-          : '<span title="Low or unknown volume" style="color:var(--yellow)">n/a ⚠</span>';
+        let volDisplay = '';
+        if (f.avg_daily_volume !== null && f.avg_daily_volume !== undefined) {
+          const v = Number(f.avg_daily_volume);
+          if (v >= 50) {
+            volDisplay = `<span class="badge" style="background:#14532d; color:#86efac; font-weight:700;" title="🔥 Extremely high Black Market demand: ~${Math.round(v)} bought daily">🔥 ${Math.round(v).toLocaleString()}/d</span>`;
+          } else if (v >= 10) {
+            volDisplay = `<span class="badge" style="background:#1e3a8a; color:#93c5fd; font-weight:600;" title="⚡ Active Black Market: ~${Math.round(v)} bought daily">⚡ ${Math.round(v).toLocaleString()}/d</span>`;
+          } else if (v >= 2) {
+            volDisplay = `<span style="color:#e2e8f0;" title="Normal volume: ~${Math.round(v)} bought daily">${Math.round(v).toLocaleString()}/d</span>`;
+          } else if (v > 0) {
+            volDisplay = `<span style="color:#fbbf24;" title="Slow moving: ~${v.toFixed(1)} bought daily">🐢 ${v.toFixed(1)}/d</span>`;
+          } else {
+            volDisplay = `<span class="badge" style="background:#450a0a; color:#fca5a5;" title="Dead item: 0 sales in last 3 days">💀 Dead (0/d)</span>`;
+          }
+        } else {
+          volDisplay = '<span style="color:#94a3b8; font-size:0.78rem;" title="Low or unrecorded sales history">💤 No Hist</span>';
+        }
+
+        const estDaily = Number(f.est_daily_profit) || 0;
+        const estDailyDisplay = estDaily > 0 
+          ? `<span class="profit-val" style="font-weight:700;">+${Math.round(estDaily).toLocaleString()}</span>` 
+          : '<span style="color:#64748b;">-</span>';
         
         const tierBadge = f.tier ? `<span class="badge badge-tier">${f.tier}.${f.enchant}</span>` : '';
         const qNames = ['', 'Normal', 'Good', 'Outstanding', 'Excellent', 'Masterpiece'];
@@ -1430,6 +1502,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td class="num profit-val">+${Math.round(profit).toLocaleString()}</td>
             <td class="num margin-val">+${margin.toFixed(1)}%</td>
             <td class="num profit-val">+${Math.round(totalP).toLocaleString()}</td>
+            <td class="num">${estDailyDisplay}</td>
             <td class="num">${volDisplay}</td>
             <td class="num" ${ageClass}>${age}m ago ${age > 20 ? '<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-size: 0.68rem;" title="Scanned ' + age + 'm ago. High-profit Black Market orders are frequently fulfilled quickly in-game!">⚠️ Verify in BM</span>' : ''}</td>
             <td style="white-space: nowrap;">
@@ -2236,6 +2309,7 @@ class FlipDataStore:
                 "margin_pct": o.margin_pct,
                 "total_profit": o.total_profit,
                 "avg_daily_volume": o.avg_daily_volume,
+                "est_daily_profit": o.est_daily_profit,
                 "data_age_minutes": o.data_age_minutes,
                 "risk": o.risk,
                 "score": score,

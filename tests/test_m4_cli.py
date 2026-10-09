@@ -21,3 +21,11 @@ def test_cli_invalid_config_exit() -> None:
     """Verify CLI returns non-zero error code on invalid config."""
     result = main(["--config", "nonexistent_file.json"])
     assert result != 0
+
+
+def test_cli_sort_daily_and_volume_and_skip_dead() -> None:
+    """Verify CLI flags --sort daily, --sort volume, and --skip-dead execute cleanly."""
+    assert main(["--once", "--offline", "tests/fixtures", "--sort", "daily"]) == 0
+    assert main(["--once", "--offline", "tests/fixtures", "--sort", "volume"]) == 0
+    assert main(["--once", "--offline", "tests/fixtures", "--skip-dead"]) == 0
+    assert main(["--once", "--offline", "tests/fixtures", "--min-volume", "5"]) == 0

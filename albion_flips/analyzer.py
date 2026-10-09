@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Sequence
+from typing import Mapping, Sequence
 import logging
 
 from albion_flips.config import AppConfig
@@ -68,7 +68,7 @@ def calculate_age_minutes(dt_str: str, now: datetime) -> float | None:
 
 
 def compute_daily_volume(
-    history_records: Sequence[HistoryRecord],
+    history_records: Sequence[HistoryRecord] | Mapping[tuple[str, str, int], HistoryRecord],
     item_id: str,
     city: str,
     quality: int = 1,
@@ -76,13 +76,17 @@ def compute_daily_volume(
 ) -> float | None:
     """Computes average daily volume sold in destination city over the volume_days window.
 
-    Returns None if history is missing for the item/city.
+    Supports both pre-indexed dictionary lookups for O(1) performance across thousands
+    of items, and standard sequence iteration. Returns None if history is missing for the item/city.
     """
     match: HistoryRecord | None = None
-    for rec in history_records:
-        if rec.item_id == item_id and rec.location == city and rec.quality == quality:
-            match = rec
-            break
+    if isinstance(history_records, Mapping):
+        match = history_records.get((item_id, city, quality))
+    else:
+        for rec in history_records:
+            if rec.item_id == item_id and rec.location == city and rec.quality == quality:
+                match = rec
+                break
 
     if match is None or not match.data:
         return None
@@ -245,6 +249,13 @@ def analyze_flips(
         price_overrides=price_overrides,
     )
 
+    # Build fast O(1) index for history records
+    history_map: Mapping[tuple[str, str, int], HistoryRecord]
+    if isinstance(history, Mapping):
+        history_map = history
+    else:
+        history_map = {(r.item_id, r.location, r.quality): r for r in history}
+
     # Group price records by item_id
     prices_by_item: dict[str, list[PriceRecord]] = {}
     for p in active_records:
@@ -351,20 +362,22 @@ def analyze_flips(
 
                 # Rule 5: Destination average daily volume
                 dest_volume = compute_daily_volume(
-                    history_records=history,
+                    history_records=history_map,
                     item_id=item_id,
                     city=sell_rec.city,
                     quality=sell_rec.quality,
                     volume_days=config.volume_days,
                 )
-                if dest_volume is None and sell_rec.quality > 1:
-                    dest_volume = compute_daily_volume(
-                        history_records=history,
+                if (dest_volume is None or dest_volume == 0.0) and sell_rec.quality > 1:
+                    fallback_vol = compute_daily_volume(
+                        history_records=history_map,
                         item_id=item_id,
                         city=sell_rec.city,
                         quality=1,
                         volume_days=config.volume_days,
                     )
+                    if fallback_vol is not None:
+                        dest_volume = fallback_vol
 
                 history_missing = (dest_volume is None)
                 if not history_missing and dest_volume < config.min_daily_volume:
@@ -383,6 +396,12 @@ def analyze_flips(
 
                 total_profit = calculate_total_profit(chosen_profit, config.stack_size)
 
+                # Est. Daily Profit / Turnover Velocity
+                if dest_volume is not None and dest_volume > 0:
+                    est_daily_profit = chosen_profit * dest_volume
+                else:
+                    est_daily_profit = 0.0
+
                 opportunities.append(
                     FlipOpportunity(
                         item_id=item_id,
@@ -399,6 +418,7 @@ def analyze_flips(
                         risk=risk_label,
                         quality=buy_quality,
                         history_missing=history_missing,
+                        est_daily_profit=est_daily_profit,
                     )
                 )
 
@@ -442,10 +462,13 @@ def calculate_deal_score(
             score += 18.0
         elif avg_daily_volume >= 2:
             score += 10.0
-        else:
+        elif avg_daily_volume > 0:
             score += 4.0
+        else:
+            # avg_daily_volume == 0.0 (verified dead item)
+            score -= 15.0
     else:
-        score += 10.0  # unknown history
+        score += 3.0  # unknown history / unverified liquidity
 
     # Profit & Margin Sweet Spot (max 20 pts)
     if 15.0 <= margin_pct <= 90.0:
@@ -479,7 +502,9 @@ def calculate_deal_score(
 
     final_score = max(5, min(99, int(round(score))))
 
-    if final_score >= 80:
+    if avg_daily_volume == 0.0:
+        return min(35, final_score), "D", "💀 DEAD ITEM"
+    elif final_score >= 80:
         return final_score, "S", "🌟 TOP PICK"
     elif final_score >= 62:
         return final_score, "A", "🟢 GOOD DEAL"

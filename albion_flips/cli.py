@@ -52,6 +52,7 @@ def build_table(
     table.add_column("Margin %", justify="right", style="bold yellow")
     table.add_column(f"Total Profit ({stack_size}x)", justify="right", style="bold green")
     table.add_column("Avg Daily Vol", justify="right")
+    table.add_column("Est. Daily", justify="right", style="bold green")
     table.add_column("Data Age", justify="right", style="dim")
     table.add_column("Risk", justify="center")
 
@@ -63,10 +64,22 @@ def build_table(
             else Text("Instant", style="magenta")
         )
 
-        vol_text = (
-            Text(f"{int(round(flip.avg_daily_volume)):,}", style="white")
-            if flip.avg_daily_volume is not None
-            else Text("n/a ⚠", style="bold yellow")
+        if flip.avg_daily_volume is not None:
+            if flip.avg_daily_volume >= 50:
+                vol_text = Text(f"🔥 {int(round(flip.avg_daily_volume)):,}", style="bold green")
+            elif flip.avg_daily_volume >= 10:
+                vol_text = Text(f"⚡ {int(round(flip.avg_daily_volume)):,}", style="bold cyan")
+            elif flip.avg_daily_volume == 0:
+                vol_text = Text("💀 0 (Dead)", style="bold red")
+            else:
+                vol_text = Text(f"{int(round(flip.avg_daily_volume)):,}", style="white")
+        else:
+            vol_text = Text("n/a ⚠", style="bold yellow")
+
+        est_daily_text = (
+            f"+{int(round(flip.est_daily_profit)):,}"
+            if flip.est_daily_profit > 0
+            else "-"
         )
 
         risk_lower = flip.risk.lower()
@@ -89,6 +102,7 @@ def build_table(
             f"{flip.margin_pct:.1f}%",
             f"{int(flip.total_profit):,}",
             vol_text,
+            est_daily_text,
             f"{int(round(flip.data_age_minutes))}m",
             risk_text,
         )
@@ -110,9 +124,20 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--sort",
         type=str,
-        choices=["profit", "total", "margin"],
+        choices=["profit", "total", "margin", "volume", "daily"],
         default="profit",
-        help="Sort column for ranking.",
+        help="Sort column for ranking (profit, total, margin, volume, daily).",
+    )
+    parser.add_argument(
+        "--min-volume",
+        type=float,
+        default=None,
+        help="Filter out items with destination daily volume below this threshold.",
+    )
+    parser.add_argument(
+        "--skip-dead",
+        action="store_true",
+        help="Skip dead items (volume < 1 or unrecorded history).",
     )
     return parser.parse_args(args)
 
@@ -129,6 +154,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.top:
         config.top_n = args.top
+
+    if args.min_volume is not None:
+        config.min_daily_volume = int(round(args.min_volume))
 
     # Setup offline mode overrides if specified
     injected_now: datetime | None = None
@@ -210,11 +238,18 @@ def main(argv: list[str] | None = None) -> int:
             price_overrides=overrides,
         )
 
+        if args.skip_dead:
+            flips = [f for f in flips if f.avg_daily_volume is not None and f.avg_daily_volume >= 1.0]
+
         # Sort based on --sort
         if args.sort == "margin":
             flips.sort(key=lambda x: x.margin_pct, reverse=True)
         elif args.sort == "total":
             flips.sort(key=lambda x: x.total_profit, reverse=True)
+        elif args.sort == "volume":
+            flips.sort(key=lambda x: (x.avg_daily_volume or 0.0), reverse=True)
+        elif args.sort == "daily":
+            flips.sort(key=lambda x: x.est_daily_profit, reverse=True)
         else:
             flips.sort(key=lambda x: x.profit_per_item, reverse=True)
 

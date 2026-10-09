@@ -117,6 +117,15 @@ Open your browser to:
 To run a single terminal scan without the web server:
 ```bash
 python -m albion_flips.cli --once
+
+# Rank by estimated daily silver turnover (profit × sales volume):
+python -m albion_flips.cli --once --sort daily
+
+# Skip dead items (volume < 1 or unrecorded history):
+python -m albion_flips.cli --once --skip-dead
+
+# Filter for liquid items only (≥ 10 sold per day) sorted by volume:
+python -m albion_flips.cli --once --min-volume 10 --sort volume
 ```
 
 ---

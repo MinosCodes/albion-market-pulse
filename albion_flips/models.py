@@ -90,6 +90,7 @@ class FlipOpportunity:
     risk: str
     quality: int = 1
     history_missing: bool = False
+    est_daily_profit: float = 0.0
 
 
 @dataclass(slots=True)
