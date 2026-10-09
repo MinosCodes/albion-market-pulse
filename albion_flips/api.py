@@ -15,8 +15,8 @@ from albion_flips.models import HistoryRecord, PriceRecord
 logger = logging.getLogger(__name__)
 
 USER_AGENT = "albion-market-analyzer/0.1"
-DEFAULT_BATCH_SIZE = 100
-MAX_URL_LENGTH = 4000
+DEFAULT_BATCH_SIZE = 150
+MAX_URL_LENGTH = 3800
 
 
 class AodpClient:
@@ -35,7 +35,7 @@ class AodpClient:
         max_url_length: int = MAX_URL_LENGTH,
         prices_cache_ttl_seconds: int = 60,
         history_cache_ttl_seconds: int = 21600,  # 6 hours
-        max_retries: int = 3,
+        max_retries: int = 5,
         backoff_factor: float = 1.0,
     ) -> None:
         self.server = server.lower()
@@ -198,6 +198,8 @@ class AodpClient:
             else:
                 data = self._fetch_with_retry(url)
                 self._write_cache(url, data)
+                if len(batches) > 1:
+                    time.sleep(0.15)
 
             if isinstance(data, list):
                 for item in data:
@@ -234,6 +236,8 @@ class AodpClient:
             else:
                 data = self._fetch_with_retry(url)
                 self._write_cache(url, data)
+                if len(batches) > 1:
+                    time.sleep(0.15)
 
             if isinstance(data, list):
                 for item in data:

@@ -32,6 +32,10 @@ def get_human_name(item_id: str) -> str:
     base_id = item_id.split("@")[0]
     if base_id in ITEM_NAMES:
         return ITEM_NAMES[base_id]
+    if "_LEVEL" in item_id:
+        clean = item_id.split("_LEVEL")[0]
+        if clean in ITEM_NAMES:
+            return ITEM_NAMES[clean]
     return item_id.replace("_", " ").title()
 
 
@@ -279,18 +283,75 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     .item-cell {
       display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 10px;
+    }
+    .item-icon-wrapper {
+      position: relative;
+      width: 40px;
+      height: 40px;
+      flex-shrink: 0;
+      background: #0f131d;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.35);
+    }
+    .item-icon {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      transition: transform 0.15s ease;
+    }
+    .item-cell:hover .item-icon {
+      transform: scale(1.1);
+    }
+    .item-details {
+      display: flex;
       flex-direction: column;
       gap: 2px;
+      min-width: 0;
     }
     .item-name {
       font-weight: 600;
       color: #ffffff;
-      font-size: 0.9rem;
+      font-size: 0.88rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: color 0.15s ease;
+    }
+    .item-name:hover {
+      color: var(--gold);
+      text-decoration: underline;
+    }
+    .wiki-badge {
+      font-size: 0.65rem;
+      color: #94a3b8;
+      background: rgba(255, 255, 255, 0.07);
+      padding: 1px 5px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-weight: normal;
+      transition: all 0.15s ease;
+    }
+    .item-name:hover .wiki-badge {
+      color: #f59e0b;
+      background: rgba(245, 158, 11, 0.2);
     }
     .item-id-sub {
-      font-size: 0.72rem;
+      font-size: 0.70rem;
       color: #64748b;
       font-family: monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .badge {
@@ -720,6 +781,50 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let sortKeyCrafting = 'profit_per_item';
     let sortAscCrafting = false;
 
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function getWikiUrl(itemName, itemId) {
+      if (!itemName && !itemId) return 'https://wiki.albiononline.com/';
+      let target = itemName || itemId;
+      let clean = target.replace(/\\s*\\(.*?\\)\\s*/g, '').trim().replace(/\\s+/g, '_');
+      return `https://wiki.albiononline.com/wiki/${encodeURIComponent(clean)}`;
+    }
+
+    function renderItemCell(itemId, itemName, quality) {
+      const safeName = escapeHtml(itemName || itemId);
+      const safeId = escapeHtml(itemId);
+      const q = quality || 1;
+      const wikiUrl = getWikiUrl(itemName, itemId);
+      const iconUrl = `https://render.albiononline.com/v1/item/${encodeURIComponent(itemId)}.png?quality=${q}`;
+
+      return `
+        <div class="item-cell">
+          <div class="item-icon-wrapper" title="${safeName}">
+            <img class="item-icon" 
+                 src="${iconUrl}" 
+                 alt="${safeName}" 
+                 loading="lazy" 
+                 onerror="this.parentElement.style.display='none';" />
+          </div>
+          <div class="item-details">
+            <a class="item-name" href="${wikiUrl}" target="_blank" rel="noopener noreferrer" title="View ${safeName} on Albion Wiki">
+              <span>${safeName}</span>
+              <span class="wiki-badge" title="Open Wiki Guide">Wiki ↗</span>
+            </a>
+            <span class="item-id-sub">${safeId}</span>
+          </div>
+        </div>
+      `;
+    }
+
     function onSearchInput() {
       clearTimeout(searchDebounceTimer);
       searchDebounceTimer = setTimeout(() => {
@@ -906,7 +1011,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (bmQuickFilter === 'instant' && item.exit_type !== 'instant_sell') return false;
         if (bmQuickFilter === 'weapons' && !item.item_id.includes('MAIN_') && !item.item_id.includes('2H_')) return false;
         if (bmQuickFilter === 'armors' && !item.item_id.includes('ARMOR_') && !item.item_id.includes('HEAD_') && !item.item_id.includes('SHOES_')) return false;
-        if (bmQuickFilter === 'accessories' && !item.item_id.includes('BAG') && !item.item_id.includes('CAPE')) return false;
+        if (bmQuickFilter === 'accessories' && !item.item_id.includes('BAG') && !item.item_id.includes('CAPE') && !item.item_id.includes('OFF_')) return false;
         if (bmQuickFilter === 'high_profit' && Number(item.profit_per_item) < 100000) return false;
 
       } else if (type === 'crafting') {
@@ -984,12 +1089,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         return `
           <tr>
             <td>${dealBadge}</td>
-            <td>
-              <div class="item-cell">
-                <span class="item-name">${f.item_name || f.item_id}</span>
-                <span class="item-id-sub">${f.item_id}</span>
-              </div>
-            </td>
+            <td>${renderItemCell(f.item_id, f.item_name, f.quality)}</td>
             <td>${tierBadge} ${qBadge}</td>
             <td>${f.buy_city || '-'}</td>
             <td>${f.sell_city || '-'}</td>
@@ -1078,12 +1178,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         return `
           <tr>
             <td>${dealBadge}</td>
-            <td>
-              <div class="item-cell">
-                <span class="item-name">${f.item_name || f.item_id}</span>
-                <span class="item-id-sub">${f.item_id}</span>
-              </div>
-            </td>
+            <td>${renderItemCell(f.item_id, f.item_name, f.quality)}</td>
             <td>${tierBadge} ${qBadge} ${newArrivalBadge}</td>
             <td><strong>${f.buy_city || '-'}</strong></td>
             <td class="num">${buyP.toLocaleString()}</td>
@@ -1144,12 +1239,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         return `
           <tr>
-            <td>
-              <div class="item-cell">
-                <span class="item-name">${c.item_name}</span>
-                <span class="item-id-sub">${c.item_id}</span>
-              </div>
-            </td>
+            <td>${renderItemCell(c.item_id, c.item_name, 1)}</td>
             <td>${tierBadge} <span class="badge badge-q">${c.craft_type}</span></td>
             <td><strong>${c.craft_city}</strong> ${bonusTag}</td>
             <td>
@@ -1197,12 +1287,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         return `
           <tr>
-            <td>
-              <div class="item-cell">
-                <span class="item-name">${p.item_name || p.item_id}</span>
-                <span class="item-id-sub">${p.item_id}</span>
-              </div>
-            </td>
+            <td>${renderItemCell(p.item_id, p.item_name, p.quality)}</td>
             <td>${tierBadge} ${qBadge}</td>
             <td>${p.city}</td>
             <td class="num">${p.sell_price_min > 0 ? p.sell_price_min.toLocaleString() : '<span style="color:#64748b;">-</span>'}</td>
@@ -1304,7 +1389,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
         if (bmChips && data.bm_recent_arrivals) {
           bmChips.innerHTML = data.bm_recent_arrivals.map(a => {
-            return `<span class="badge" style="background:#1e293b; color:#a7f3d0; border:1px solid #059669; font-size:0.75rem;" title="${a.buy_city} -> Black Market">+${Math.round(a.profit).toLocaleString()} (${a.item_name} ${a.age}m ago)</span>`;
+            const icon = a.item_id ? `<img src="https://render.albiononline.com/v1/item/${encodeURIComponent(a.item_id)}.png?quality=${a.quality || 1}" style="width:16px;height:16px;object-fit:contain;vertical-align:middle;margin-right:4px;" onerror="this.style.display='none';">` : '';
+            return `<span class="badge" style="background:#1e293b; color:#a7f3d0; border:1px solid #059669; font-size:0.75rem; display:inline-flex; align-items:center;" title="${a.buy_city} -> Black Market">${icon}+${Math.round(a.profit).toLocaleString()} (${a.item_name} ${a.age}m ago)</span>`;
           }).join('');
         }
 
@@ -1528,6 +1614,7 @@ class FlipDataStore:
 
                 if is_fresh or is_new:
                     recent_bm_arrivals.append({
+                        "item_id": o.item_id,
                         "item_name": human_name,
                         "tier": f"{tier}.{enchant}" if tier else "",
                         "quality": o.quality,

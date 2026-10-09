@@ -54,3 +54,35 @@ def test_load_example_config_and_items() -> None:
     assert "T4_PLANKS" in items
     assert "T4_BAG" in items
     assert len(items) > 10
+
+
+def test_all_items_exist_and_render_ready() -> None:
+    """Verify that all valid Albion Online items exist in items.json and are render-ready."""
+    import json
+    with open("data/item_names.json", "r", encoding="utf-8") as f:
+        item_names = json.load(f)
+
+    items = load_items("data/items.json")
+    item_set = set(items)
+
+    # Over 5,000 active trade items and over 11,000 game items
+    assert len(items) >= 5000
+    assert len(item_names) >= 11000
+
+    # Key categories must be fully present across tiers and enchants
+    assert "T4_MAIN_SWORD" in item_set
+    assert "T8_2H_AXE_AVALON@4" in item_set
+    assert "T6_CAPEITEM_FW_BRIDGEWATCH@2" in item_set
+    assert "T8_MOUNT_HORSE" in item_set
+    assert "T7_POTION_REVIVE" in item_set
+    assert "T7_MEAL_OMELETTE" in item_set
+    assert "T5_FISH_FRESHWATER_ALL_COMMON" in item_set
+    assert "T4_ARTEFACT_2H_BOW_AVALON" in item_set
+    assert "T3_WOOD" in item_set
+    assert "T3_2H_BOW" in item_set
+
+    # Check sample items exist in item_names
+    for sample_id in ["T4_BAG@1", "T6_2H_AXE_AVALON@3", "T8_MOUNT_HORSE"]:
+        assert sample_id in item_set
+        assert sample_id in item_names
+

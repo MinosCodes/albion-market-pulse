@@ -182,7 +182,17 @@ def main(argv: list[str] | None = None) -> int:
                 qualities=config.qualities,
                 bypass_cache=bypass_cache,
             )
-            history = client.get_history(item_ids=item_ids, cities=config.cities, qualities=config.qualities)
+            if args.offline:
+                history = client.get_history(item_ids=item_ids, cities=config.cities, qualities=config.qualities)
+            else:
+                active_item_ids = list({
+                    p.item_id for p in prices if (p.sell_price_min > 0 or p.buy_price_max > 0)
+                })
+                history = client.get_history(
+                    item_ids=active_item_ids if active_item_ids else item_ids[:100],
+                    cities=config.cities,
+                    qualities=config.qualities,
+                )
         except Exception as exc:
             logger.error("API error during refresh: %s", exc)
             console.print(f"[yellow]Warning: Market API fetch failed: {exc}[/yellow]")
