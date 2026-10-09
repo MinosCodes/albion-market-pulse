@@ -97,10 +97,12 @@ Open `config.json` and adjust:
 ### 3. Run the Analyzer & Web Dashboard
 
 #### Option A: 1-Click Desktop App (Zero-Config)
-- **macOS**: Double-click **`Albion Market Pulse.app`** on your Desktop or in the project folder. It launches the service in the background and opens the dashboard in your default browser.
+#### Option A: 1-Click Desktop App (Zero-Config)
 - **Windows**:
-  - Run **`Create-Desktop-Shortcut.bat`** once to pin **Albion Market Pulse** directly to your Windows Desktop with the custom icon.
-  - Or double-click **`Start-Albion-Pulse.bat`** anytime to launch.
+  - Run **`Setup-Windows.bat`** once. It automatically configures Python, downloads the Albion Data Client if missing, and pins the **`Albion Market Pulse`** shortcut to your Desktop!
+  - Double-click **`Albion Market Pulse`** on your Desktop anytime to launch both the live monitor and the Data Client automatically.
+- **macOS**:
+  - Double-click **`Albion Market Pulse.app`** on your Desktop. It launches the service and automatically detects/starts the live packet sniffer.
 
 #### Option B: Terminal Command
 To launch continuous watch mode with the interactive web dashboard from your command line:
@@ -119,46 +121,50 @@ python -m albion_flips.cli --once
 
 ---
 
-## 📡 How to Feed Live Info Into It
+## 🪟 Windows Setup Guide: Albion Data Client (Step-by-Step)
 
-Because the tool reads from the **Albion Online Data Project (AODP)** community database, market data relies on players visiting marketplaces and broadcasting prices.
+The **Albion Data Client** passively sniffs market response packets sent by the game server when you open the market in Albion Online and uploads them to the community database.
 
-When you run the **Albion Data Client** in the background, every marketplace tab you open in-game will instantly push fresh prices to AODP, and the analyzer will pick them up within seconds!
+Follow these simple steps on Windows:
 
-### Step 1: Install Albion Data Client
+### 1. Install Npcap (Crucial Driver)
+The Data Client requires the **Npcap** packet capture driver:
+1. Download the installer from: 👉 **[https://npcap.com/#download](https://npcap.com/#download)**
+2. Run the installer (`npcap-x.xx.exe`).
+3. ⚠️ **VERY IMPORTANT STEP**: During installation, on the "Installation Options" screen, make sure you check:
+   - **`[X] Install Npcap in WinPcap API-compatible Mode`**
+4. Complete the installation.
 
-1. Download the latest client for your operating system from the official GitHub:
-   👉 **[https://github.com/ao-data/albiondata-client/releases](https://github.com/ao-data/albiondata-client/releases)**
-2. System specific setup:
-   - **Windows**:
-     - Install **Npcap** in "WinPcap API-compatible Mode" (download from [npcap.com](https://npcap.com/)).
-     - Extract `albiondata-client-windows-amd64.zip`.
-     - Right-click `albiondata-client.exe` and select **Run as Administrator**.
-   - **macOS**:
-     - Extract the client binary.
-     - Because packet capture requires root permissions to access `/dev/bpf`, run:
-       ```bash
-       sudo ./albiondata-client-executable
-       ```
-     - (Or double click `start-live-client.command` if on macOS).
-   - **Linux**:
-     - Install `libpcap`: `sudo apt install libpcap-dev`
-     - Run: `sudo ./albiondata-client`
+### 2. Auto-Install Albion Market Pulse
+In the project folder on Windows, simply double-click:
+👉 **`Setup-Windows.bat`**
 
-### Step 2: Feed Data in Albion Online
+This automated script will:
+- Set up the Python virtual environment and dependencies.
+- Automatically download and extract `albiondata-client.exe` from GitHub if not already present.
+- Create an **`Albion Market Pulse`** shortcut on your Desktop with the custom Albion medallion icon.
 
-1. With **Albion Data Client** running, launch **Albion Online** and log in.
-2. Travel to any marketplace (e.g. Lymhurst, Martlock, Fort Sterling) or the **Caerleon Black Market**.
-3. Open the Market board:
-   - Scroll through categories or search items (e.g. Armor, Staves, Bags).
-   - Click through quality or tier tabs.
-4. Watch the **Albion Data Client** console window: you will see logs confirming packets decoded and sent:
+### 3. Running & Ingesting Prices
+1. Double-click the **`Albion Market Pulse`** shortcut on your Desktop (or run `Start-Albion-Pulse.bat`).
+2. A Windows UAC prompt may appear asking to allow `albiondata-client.exe` — click **Yes** (Admin rights are required by Npcap to read network adapter packets).
+3. The launcher will automatically:
+   - Start **Albion Data Client** in its own console window (`Watching Albion`).
+   - Start **Albion Market Pulse** web engine.
+   - Pop open **`http://localhost:8765`** in your browser.
+4. Launch **Albion Online** and walk up to any Marketplace or the Caerleon Black Market.
+5. In the **Albion Data Client** console window, you will see real-time confirmations:
    ```text
-   Ingested market orders for 25 items -> uploaded to AODP
+   INFO Ingested 25 market orders -> Sent to Albion Online Data Project
    ```
-5. Switch to your **Albion Market Analyzer Dashboard** (`http://localhost:8765`):
-   - The dashboard updates every few seconds.
-   - Newly scanned Black Market buy orders immediately display the `⚡ JUST IN` badge and appear in the **Live Black Market Arrival Feed** banner!
+6. In your dashboard, newly scanned items immediately appear with the **`⚡ JUST IN`** badge!
+
+### 🛠️ Windows Troubleshooting
+- **`Error: No interfaces found` or `cannot open adapter`**:
+  - Reinstall Npcap from [npcap.com](https://npcap.com/) and make sure the box **`Install Npcap in WinPcap API-compatible Mode`** is checked.
+- **Windows Firewall Alert**:
+  - If Windows Defender Firewall asks to allow network access for `albiondata-client.exe`, select **Allow Access** for Private Networks.
+- **Python not recognized in CMD**:
+  - Download Python from [python.org](https://www.python.org/downloads/) and re-run the installer, selecting **Modify** ➔ Check **`[X] Add python.exe to PATH`**.
 
 ---
 

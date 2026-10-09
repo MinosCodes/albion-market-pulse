@@ -18,8 +18,8 @@ if exist "albiondata-client\albiondata-client.exe" (
 if not "%CLIENT_EXE%"=="" (
     tasklist /fi "imagename eq albiondata-client.exe" 2>nul | findstr /i "albiondata-client.exe" >nul 2>&1
     if %errorlevel% neq 0 (
-        echo [INFO] Starting Albion Data Client for live price capture...
-        start "Albion Data Client (Live Ingest)" "%CLIENT_EXE%"
+        echo [INFO] Starting Albion Data Client for live price capture (requesting Admin permissions)...
+        powershell -Command "Start-Process '%CLIENT_EXE%' -Verb runAs"
     ) else (
         echo [INFO] Albion Data Client is already running.
     )
