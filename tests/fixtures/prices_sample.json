@@ -1,0 +1,79 @@
+[
+  {"item_id": "T4_PLANKS", "city": "Bridgewatch", "quality": 1,
+   "sell_price_min": 1000, "sell_price_min_date": "2026-10-09T08:10:00",
+   "sell_price_max": 1100, "sell_price_max_date": "2026-10-09T08:10:00",
+   "buy_price_min": 800, "buy_price_min_date": "2026-10-09T08:10:00",
+   "buy_price_max": 900, "buy_price_max_date": "2026-10-09T08:10:00"},
+
+  {"item_id": "T4_PLANKS", "city": "Martlock", "quality": 1,
+   "sell_price_min": 1300, "sell_price_min_date": "2026-10-09T08:00:00",
+   "sell_price_max": 1400, "sell_price_max_date": "2026-10-09T08:00:00",
+   "buy_price_min": 1100, "buy_price_min_date": "2026-10-09T08:00:00",
+   "buy_price_max": 1250, "buy_price_max_date": "2026-10-09T08:00:00"},
+
+  {"item_id": "T4_PLANKS", "city": "Lymhurst", "quality": 1,
+   "sell_price_min": 2000, "sell_price_min_date": "2026-10-06T12:00:00",
+   "sell_price_max": 2100, "sell_price_max_date": "2026-10-06T12:00:00",
+   "buy_price_min": 1800, "buy_price_min_date": "2026-10-06T12:00:00",
+   "buy_price_max": 1900, "buy_price_max_date": "2026-10-06T12:00:00"},
+
+  {"item_id": "T4_METALBAR", "city": "Fort Sterling", "quality": 1,
+   "sell_price_min": 500, "sell_price_min_date": "2026-10-09T08:15:00",
+   "sell_price_max": 520, "sell_price_max_date": "2026-10-09T08:15:00",
+   "buy_price_min": 400, "buy_price_min_date": "2026-10-09T08:15:00",
+   "buy_price_max": 450, "buy_price_max_date": "2026-10-09T08:15:00"},
+
+  {"item_id": "T4_METALBAR", "city": "Thetford", "quality": 1,
+   "sell_price_min": 520, "sell_price_min_date": "2026-10-09T08:05:00",
+   "sell_price_max": 540, "sell_price_max_date": "2026-10-09T08:05:00",
+   "buy_price_min": 430, "buy_price_min_date": "2026-10-09T08:05:00",
+   "buy_price_max": 480, "buy_price_max_date": "2026-10-09T08:05:00"},
+
+  {"item_id": "T4_LEATHER", "city": "Bridgewatch", "quality": 1,
+   "sell_price_min": 0, "sell_price_min_date": "0001-01-01T00:00:00",
+   "sell_price_max": 0, "sell_price_max_date": "0001-01-01T00:00:00",
+   "buy_price_min": 0, "buy_price_min_date": "0001-01-01T00:00:00",
+   "buy_price_max": 0, "buy_price_max_date": "0001-01-01T00:00:00"},
+
+  {"item_id": "T4_LEATHER", "city": "Martlock", "quality": 1,
+   "sell_price_min": 900, "sell_price_min_date": "2026-10-09T08:20:00",
+   "sell_price_max": 950, "sell_price_max_date": "2026-10-09T08:20:00",
+   "buy_price_min": 800, "buy_price_min_date": "2026-10-09T08:20:00",
+   "buy_price_max": 850, "buy_price_max_date": "2026-10-09T08:20:00"},
+
+  {"item_id": "T4_CLOTH", "city": "Thetford", "quality": 1,
+   "sell_price_min": 200, "sell_price_min_date": "2026-10-09T08:10:00",
+   "sell_price_max": 210, "sell_price_max_date": "2026-10-09T08:10:00",
+   "buy_price_min": 150, "buy_price_min_date": "2026-10-09T08:10:00",
+   "buy_price_max": 190, "buy_price_max_date": "2026-10-09T08:10:00"},
+
+  {"item_id": "T4_CLOTH", "city": "Bridgewatch", "quality": 1,
+   "sell_price_min": 5000, "sell_price_min_date": "2026-10-09T08:10:00",
+   "sell_price_max": 5200, "sell_price_max_date": "2026-10-09T08:10:00",
+   "buy_price_min": 4500, "buy_price_min_date": "2026-10-09T08:10:00",
+   "buy_price_max": 4800, "buy_price_max_date": "2026-10-09T08:10:00"},
+
+  {"item_id": "T4_STONEBLOCK", "city": "Martlock", "quality": 1,
+   "sell_price_min": 400, "sell_price_min_date": "2026-10-09T08:00:00",
+   "sell_price_max": 420, "sell_price_max_date": "2026-10-09T08:00:00",
+   "buy_price_min": 350, "buy_price_min_date": "2026-10-09T08:00:00",
+   "buy_price_max": 380, "buy_price_max_date": "2026-10-09T08:00:00"},
+
+  {"item_id": "T4_STONEBLOCK", "city": "Lymhurst", "quality": 1,
+   "sell_price_min": 600, "sell_price_min_date": "2026-10-09T08:00:00",
+   "sell_price_max": 650, "sell_price_max_date": "2026-10-09T08:00:00",
+   "buy_price_min": 500, "buy_price_min_date": "2026-10-09T08:00:00",
+   "buy_price_max": 550, "buy_price_max_date": "2026-10-09T08:00:00"},
+
+  {"item_id": "T4_HIDE", "city": "Bridgewatch", "quality": 1,
+   "sell_price_min": 300, "sell_price_min_date": "2026-10-09T08:00:00",
+   "sell_price_max": 320, "sell_price_max_date": "2026-10-09T08:00:00",
+   "buy_price_min": 250, "buy_price_min_date": "2026-10-09T08:00:00",
+   "buy_price_max": 280, "buy_price_max_date": "2026-10-09T08:00:00"},
+
+  {"item_id": "T4_HIDE", "city": "Fort Sterling", "quality": 1,
+   "sell_price_min": 450, "sell_price_min_date": "2026-10-09T08:00:00",
+   "sell_price_max": 470, "sell_price_max_date": "2026-10-09T08:00:00",
+   "buy_price_min": 400, "buy_price_min_date": "2026-10-09T08:00:00",
+   "buy_price_max": 420, "buy_price_max_date": "2026-10-09T08:00:00"}
+]

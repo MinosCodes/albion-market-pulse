@@ -1,0 +1,38 @@
+[
+  {"location": "Martlock", "item_id": "T4_PLANKS", "quality": 1,
+   "data": [
+     {"item_count": 120, "avg_price": 1280, "timestamp": "2026-10-07T00:00:00"},
+     {"item_count": 150, "avg_price": 1295, "timestamp": "2026-10-08T00:00:00"},
+     {"item_count": 130, "avg_price": 1300, "timestamp": "2026-10-09T00:00:00"}
+   ]},
+  {"location": "Bridgewatch", "item_id": "T4_PLANKS", "quality": 1,
+   "data": [
+     {"item_count": 200, "avg_price": 1010, "timestamp": "2026-10-07T00:00:00"},
+     {"item_count": 210, "avg_price": 1005, "timestamp": "2026-10-08T00:00:00"},
+     {"item_count": 190, "avg_price": 1000, "timestamp": "2026-10-09T00:00:00"}
+   ]},
+  {"location": "Thetford", "item_id": "T4_METALBAR", "quality": 1,
+   "data": [
+     {"item_count": 300, "avg_price": 515, "timestamp": "2026-10-07T00:00:00"},
+     {"item_count": 310, "avg_price": 518, "timestamp": "2026-10-08T00:00:00"},
+     {"item_count": 290, "avg_price": 520, "timestamp": "2026-10-09T00:00:00"}
+   ]},
+  {"location": "Bridgewatch", "item_id": "T4_CLOTH", "quality": 1,
+   "data": [
+     {"item_count": 500, "avg_price": 4900, "timestamp": "2026-10-07T00:00:00"},
+     {"item_count": 480, "avg_price": 5000, "timestamp": "2026-10-08T00:00:00"},
+     {"item_count": 520, "avg_price": 5000, "timestamp": "2026-10-09T00:00:00"}
+   ]},
+  {"location": "Martlock", "item_id": "T4_LEATHER", "quality": 1,
+   "data": [
+     {"item_count": 200, "avg_price": 890, "timestamp": "2026-10-07T00:00:00"},
+     {"item_count": 210, "avg_price": 895, "timestamp": "2026-10-08T00:00:00"},
+     {"item_count": 190, "avg_price": 900, "timestamp": "2026-10-09T00:00:00"}
+   ]},
+  {"location": "Lymhurst", "item_id": "T4_STONEBLOCK", "quality": 1,
+   "data": [
+     {"item_count": 10, "avg_price": 590, "timestamp": "2026-10-07T00:00:00"},
+     {"item_count": 12, "avg_price": 595, "timestamp": "2026-10-08T00:00:00"},
+     {"item_count": 8, "avg_price": 600, "timestamp": "2026-10-09T00:00:00"}
+   ]}
+]

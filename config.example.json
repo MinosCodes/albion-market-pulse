@@ -1,0 +1,32 @@
+{
+  "server": "europe",
+  "cities": ["Bridgewatch", "Fort Sterling", "Lymhurst", "Martlock", "Thetford", "Caerleon"],
+  "qualities": [1],
+  "premium": true,
+  "tax_rate_premium": 0.04,
+  "tax_rate_standard": 0.08,
+  "setup_fee_rate": 0.025,
+  "min_profit_silver": 500,
+  "min_margin_pct": 5,
+  "max_margin_pct": 300,
+  "min_daily_volume": 50,
+  "volume_days": 3,
+  "max_price_age_minutes": 120,
+  "stack_size": 100,
+  "refresh_seconds": 180,
+  "top_n": 25,
+  "risk": {
+    "Bridgewatch": "low",
+    "Fort Sterling": "low",
+    "Lymhurst": "low",
+    "Martlock": "low",
+    "Thetford": "low",
+    "Brecilien": "medium",
+    "Caerleon": "high"
+  },
+  "notify_profit_silver": null,
+  "web": {
+    "enabled": false,
+    "port": 8765
+  }
+}

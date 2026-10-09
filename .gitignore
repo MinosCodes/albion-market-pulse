@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.cache/
+config.json
+*.egg-info/
+dist/
+build/
+*.log
+*.zip
+albiondata-client/
+.DS_Store
+
