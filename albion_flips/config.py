@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -66,6 +67,7 @@ class AppConfig:
     notify_profit_silver: int | None = None
     web_enabled: bool = False
     web_port: int = 8765
+    gemini_api_key: str | None = None
 
     @property
     def active_tax_rate(self) -> float:
@@ -148,6 +150,7 @@ class AppConfig:
             notify_profit_silver=data.get("notify_profit_silver"),
             web_enabled=web_enabled,
             web_port=web_port,
+            gemini_api_key=data.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY"),
         )
         cfg.validate()
         return cfg

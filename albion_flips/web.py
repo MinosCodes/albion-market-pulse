@@ -11,7 +11,7 @@ from typing import Any, Callable, Sequence
 
 from albion_flips.advisor import ask_advisor
 from albion_flips.analyzer import analyze_crafting, calculate_deal_score, deduplicate_prices
-from albion_flips.config import AppConfig
+from albion_flips.config import AppConfig, load_config
 from albion_flips.models import FlipOpportunity, PriceRecord
 
 logger = logging.getLogger(__name__)
@@ -1093,11 +1093,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <div class="advisor-avatar">🧙‍♂️</div>
           <div>
             <h3 style="margin: 0; color: #fff; font-size: 1.15rem; display: flex; align-items: center; gap: 8px;">
-              Albion Tactical AI Market Advisor
-              <span class="badge" style="background: #312e81; color: #a5b4fc; font-size: 0.72rem;">Live Intelligence</span>
+              Malakor — Grand Smuggler & Market AI
+              <span class="badge" style="background: #312e81; color: #a5b4fc; font-size: 0.72rem;">Gemini Live Engine</span>
             </h3>
             <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: var(--text-muted);">
-              Instant tactical advice on what to craft, refine, flip, or transport based on your current city & live prices.
+              Tactical AI master advisor reading live AODP prices, refining bonuses, and Black Market order books.
             </p>
           </div>
         </div>
@@ -1128,7 +1128,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <!-- Chat history window -->
       <div id="advisor-chat" class="advisor-chat-box">
         <div class="chat-bubble bubble-ai">
-          <strong>🧙‍♂️ Advisor:</strong> Welcome, adventurer! Tell me which city you are currently in (or click one of the city pills above), and I will calculate the best crafting recipes, local refining bonuses, and flips to maximize your silver right now!
+          <strong>🧙‍♂️ Malakor:</strong> Greetings, adventurer. I am Malakor, Grand Smuggler and Master Market Cartographer of Albion. Tell me which city you are operating in and your available silver budget, and I will dissect our live market scans to find your highest-profit equipment crafts, royal flips, and Black Market opportunities.
         </div>
       </div>
 
@@ -2414,7 +2414,10 @@ class FlipDataStore:
         self.price_overrides: dict[tuple[str, str, int], int] = {}
         self.last_prices: list[PriceRecord] = []
         self.last_history: list[HistoryRecord] = []
-        self.last_config: AppConfig | None = None
+        try:
+            self.last_config: AppConfig | None = load_config()
+        except Exception:
+            self.last_config = None
         self.client: Any = None
         self._load_overrides()
 
@@ -2787,6 +2790,7 @@ class FlipDataStore:
                 "recent_prices": list(self.recent_prices),
                 "overrides_count": len(self.fulfilled_orders) + len(self.price_overrides),
                 "overrides": overrides_list,
+                "gemini_api_key": self.last_config.gemini_api_key if self.last_config else None,
             }
 
 
@@ -2890,6 +2894,8 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
                 body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
                 query = body.get("query", "")
                 api_key = body.get("api_key", None)
+                if not api_key and self.store.last_config and self.store.last_config.gemini_api_key:
+                    api_key = self.store.last_config.gemini_api_key
                 data = self.store.get_data()
                 reply = ask_advisor(query=query, store_data=data, api_key=api_key)
                 self._send_json({"response": reply})
@@ -2942,7 +2948,8 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
                 parsed = parse_qs(urlparse(self.path).query)
                 query_str = parsed.get("query", [""])[0]
             data = self.store.get_data()
-            reply = ask_advisor(query=query_str, store_data=data)
+            api_key = self.store.last_config.gemini_api_key if self.store.last_config else None
+            reply = ask_advisor(query=query_str, store_data=data, api_key=api_key)
             self._send_json({"response": reply})
         else:
             self.send_response(404)

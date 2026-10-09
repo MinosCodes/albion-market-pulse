@@ -295,6 +295,87 @@ def generate_tactical_advice(
     return "\n".join(lines)
 
 
+MALAKOR_SYSTEM_INSTRUCTION = """You are Malakor, the Grand Smuggler and Master Market Cartographer of Albion Online.
+You have amassed millions in silver across the Royal Continent, conquered Caerleon's cutthroat Black Market, and engineered high-margin crafting networks across every Royal City.
+
+### YOUR PERSONALITY & VOICE:
+- Shrewd, tactical, gritty, and fiercely strategic. You respect ambitious adventurers but have zero patience for careless mistakes that lead to losing silver or getting dismounted by gankers.
+- Use authentic Albion Online terminology naturally and fluently:
+  - "Silver", "Resource Return Rate (RRR)", "Crafting Focus", "Royal Cities", "Red Zones", "Black Market Buy Orders", "Choke Points", "Gankers & Scouts", "Armored Horse / Pest Lizard", "Order Tax & Setup Fee (4% with Premium / 8% without, 2.5% listing fee)", "Instant Sell vs Sell Order", "Market Spread".
+- Speak directly, confidently, and with rich Albion flavor (e.g. "Listen closely, adventurer...", "The Royal crafters are asleep at the anvil...", "Caerleon gankers smell blood at the gate, so keep your wits sharp").
+
+### STRICT GUARDRAILS (NEVER BREAK THESE):
+1. ALBION ONLINE DOMAIN ONLY:
+   - You ONLY discuss Albion Online markets, crafting, refining, equipment, flip transport routes, and economic gameplay.
+   - If asked about unrelated matters (code, real-world finance, other games, politics), shut it down in character: "I trade in Albion silver and blood-soaked goods, not court gossip or foreign philosophies. Talk business or step aside."
+2. ABSOLUTE GROUND TRUTH & ANTI-HALLUCINATION:
+   - Base all specific item suggestions, silver prices, material costs, and margins SOLELY on the live market data and tactical briefing provided below.
+   - Never invent fantasy prices or promise profits on items not in the live data feed.
+   - If no profitable crafts or flips exist in the live data for a specific inquiry, state plainly that current market scouts show no favorable spreads and advise patience or alternative routes.
+3. FULL-LOOT LETHAL PVP SAFETY WARNING:
+   - Whenever advising transports to Caerleon or the Black Market, ALWAYS issue a stern Red Zone warning:
+     - Full-loot lethal PvP zone!
+     - Mount requirement: Armored Horse, Pest Lizard, or Grizzly Bear (never travel on a slow ox or squishy horse).
+     - Carry Invisibility Potions and Gigantify Potions on your potion slot.
+     - Check the hostile player counter on the mini-map before stepping through region gates.
+4. ORDER TYPES & TAXES:
+   - Explicitly guide the player between:
+     - 'Instant Sell' (Direct Buy Order): 0% listing setup fee, pays market tax only, immediate silver payout.
+     - 'Sell Order': Higher margin, but pays 2.5% listing setup fee and risks getting undercut.
+5. CLEAN ACTION-ORIENTED FORMATTING:
+   - Use structured GitHub-flavored Markdown: bold item names, formatted silver amounts with commas (e.g. 245,000 Silver), bulleted steps, and a concise 3-4 step Action Plan."""
+
+GEMINI_MODELS = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.8-flash",
+    "gemini-flash-latest",
+]
+
+
+def call_gemini_advisor(
+    query: str,
+    city: str,
+    budget: int | None,
+    briefing: str,
+    api_key: str,
+) -> str | None:
+    """Calls Gemini with Malakor personality and guardrails using live market data."""
+    budget_str = f"{budget:,} Silver" if budget else "Flexible / Unspecified"
+    prompt = (
+        f"{MALAKOR_SYSTEM_INSTRUCTION}\n\n"
+        f"=== LIVE MARKET DATA & TACTICAL BRIEFING ===\n"
+        f"{briefing}\n\n"
+        f"=== PLAYER INQUIRY ===\n"
+        f"Player Location: {city}\n"
+        f"Working Budget: {budget_str}\n"
+        f"Player Inquiry: \"{query}\"\n\n"
+        f"Provide your shrewd, tactical response now. Analyze the specific items, crafts, and routes from the briefing that answer their question best."
+    )
+
+    for model in GEMINI_MODELS:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        try:
+            res = requests.post(
+                url,
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+                timeout=12,
+            )
+            if res.status_code == 200:
+                data = res.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts and "text" in parts[0]:
+                        return parts[0]["text"]
+            else:
+                logger.warning("Gemini model %s returned status %d: %s", model, res.status_code, res.text[:200])
+        except Exception as e:
+            logger.warning("Gemini call to %s failed: %s", model, e)
+
+    return None
+
+
 def ask_advisor(
     query: str,
     store_data: dict[str, Any],
@@ -314,31 +395,25 @@ def ask_advisor(
             "---\n\n"
         )
 
-    # Check if Gemini or OpenAI API key is present for generative mode
-    gemini_key = api_key or os.environ.get("GEMINI_API_KEY")
+    # Check if Gemini API key is present for generative mode
+    gemini_key = (
+        api_key
+        or store_data.get("gemini_api_key")
+        or (store_data.get("config", {}).get("gemini_api_key") if isinstance(store_data.get("config"), dict) else None)
+        or os.environ.get("GEMINI_API_KEY")
+    )
 
-    # If LLM key is configured, generate contextual response
+    # If LLM key is configured, generate contextual response with Malakor persona & guardrails
     if gemini_key:
-        try:
-            prompt = (
-                f"You are the master economic advisor in Albion Online. The user is asking:\n"
-                f"'{query}'\n\n"
-                f"Here is the verified, live real-time market data and tactical briefing for their location:\n\n"
-                f"{briefing}\n\n"
-                f"Provide a friendly, highly tactical, roleplayed and concise response advising the player on exactly what to craft, buy, flip, and transport right now."
-            )
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
-            res = requests.post(
-                url,
-                json={"contents": [{"parts": [{"text": prompt}]}]},
-                timeout=10,
-            )
-            if res.status_code == 200:
-                candidates = res.json().get("candidates", [])
-                if candidates:
-                    return candidates[0]["content"]["parts"][0]["text"]
-        except Exception as e:
-            logger.warning("Gemini LLM request failed, falling back to tactical engine: %s", e)
+        llm_reply = call_gemini_advisor(
+            query=query,
+            city=city,
+            budget=budget,
+            briefing=briefing,
+            api_key=gemini_key,
+        )
+        if llm_reply:
+            return llm_reply
 
     # Built-in Tactical Engine (Keyless, 100% free, offline, instant)
     return intro + briefing

@@ -103,3 +103,36 @@ def test_ask_advisor_fallback_and_prompt() -> None:
 
     reply_general = ask_advisor(query="Hello", store_data={})
     assert "Albion Tactical AI Market Advisor" in reply_general
+
+
+def test_call_gemini_advisor_mocked(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+    from albion_flips.advisor import MALAKOR_SYSTEM_INSTRUCTION, call_gemini_advisor
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [{"text": "Listen closely, adventurer: Malakor says craft Battleaxes in Martlock!"}]
+                }
+            }
+        ]
+    }
+
+    import requests
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: mock_resp)
+
+    res = call_gemini_advisor(
+        query="What should I craft?",
+        city="Martlock",
+        budget=500_000,
+        briefing="Mock briefing content",
+        api_key="mock_key",
+    )
+    assert res is not None
+    assert "Malakor" in res
+    assert "Battleaxes" in res
+    assert "Malakor" in MALAKOR_SYSTEM_INSTRUCTION
+    assert "GUARDRAILS" in MALAKOR_SYSTEM_INSTRUCTION
