@@ -1,45 +1,34 @@
 #!/bin/bash
-set -e
 
 # Find project directory
-APP_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
-if [ -f "$APP_DIR/albion_flips/cli.py" ]; then
-    PROJECT_DIR="$APP_DIR"
-elif [ -f "/Users/aminemerdassi/Desktop/Gym/albion online project/albion_flips/cli.py" ]; then
-    PROJECT_DIR="/Users/aminemerdassi/Desktop/Gym/albion online project"
-elif [ -f "$HOME/Desktop/albion online project/albion_flips/cli.py" ]; then
-    PROJECT_DIR="$HOME/Desktop/albion online project"
-else
-    PROJECT_DIR="$APP_DIR"
+PROJECT_DIR="/Users/aminemerdassi/Desktop/Gym/albion online project"
+if [ ! -d "$PROJECT_DIR" ]; then
+    PROJECT_DIR="/Users/aminemerdassi/Desktop/albion online project"
+fi
+if [ ! -d "$PROJECT_DIR" ]; then
+    PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 fi
 
-cd "$PROJECT_DIR"
-
-# Ensure config.json exists
-if [ ! -f "config.json" ] && [ -f "config.example.json" ]; then
-    cp config.example.json config.json
+# If server is already running, just open browser
+if lsof -i :8765 >/dev/null 2>&1; then
+    open "http://localhost:8765"
+    exit 0
 fi
 
-# Ensure virtualenv exists
-if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
-    .venv/bin/pip install -r requirements.txt
-fi
+# Launch in Terminal (ensures proper macOS permissions and shows live scan logs)
+osascript << APPLESCRIPT
+tell application "Terminal"
+    activate
+    do script "cd \"$PROJECT_DIR\" && [ ! -d \".venv\" ] && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt; clear; echo '⚔️  Albion Market Pulse is running!'; echo '👉 Web Dashboard: http://localhost:8765'; echo '------------------------------------------------'; .venv/bin/python -m albion_flips.cli --watch --web"
+end tell
+APPLESCRIPT
 
-# Check if server is running on port 8765
-if ! lsof -i :8765 >/dev/null 2>&1; then
-    nohup .venv/bin/python -m albion_flips.cli --watch --web > albion-pulse.log 2>&1 &
-    # Wait for server to bind
-    for i in {1..15}; do
-        if lsof -i :8765 >/dev/null 2>&1; then
-            break
-        fi
-        sleep 0.5
-    done
-fi
+# Wait for server to bind then open browser
+for i in {1..20}; do
+    if lsof -i :8765 >/dev/null 2>&1; then
+        break
+    fi
+    sleep 0.5
+done
 
-# Open web dashboard
 open "http://localhost:8765"
-
-# Show notification
-osascript -e 'display notification "Web Dashboard is open at http://localhost:8765" with title "Albion Market Pulse" subtitle "Server Active"' >/dev/null 2>&1 || true
