@@ -1,6 +1,6 @@
 {
   "server": "europe",
-  "cities": ["Bridgewatch", "Fort Sterling", "Lymhurst", "Martlock", "Thetford", "Caerleon"],
+  "cities": ["Bridgewatch", "Fort Sterling", "Lymhurst", "Martlock", "Thetford", "Caerleon", "Black Market"],
   "qualities": [1, 2, 3, 4, 5],
   "premium": true,
   "tax_rate_premium": 0.04,

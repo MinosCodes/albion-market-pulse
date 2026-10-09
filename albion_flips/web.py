@@ -683,7 +683,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
 
       <div>
-        <span class="filter-label">Buy/Craft City:</span>
+        <span class="filter-label" id="filter-buy-city-label">Buy City:</span>
         <select id="filter-buy-city" class="filter-select" onchange="onFilterChange()">
           <option value="all">All Cities</option>
           <option value="Bridgewatch">Bridgewatch</option>
@@ -693,6 +693,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <option value="Thetford">Thetford</option>
           <option value="Caerleon">Caerleon</option>
           <option value="Brecilien">Brecilien</option>
+          <option value="Black Market">Black Market</option>
         </select>
       </div>
 
@@ -707,6 +708,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <option value="Thetford">Thetford</option>
           <option value="Caerleon">Caerleon</option>
           <option value="Brecilien">Brecilien</option>
+          <option value="Black Market">Black Market</option>
         </select>
       </div>
 
@@ -1030,10 +1032,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       document.getElementById('quick-blackmarket').style.display = (tab === 'blackmarket') ? 'flex' : 'none';
       document.getElementById('quick-crafting').style.display = (tab === 'crafting') ? 'flex' : 'none';
 
-      // Hide or show Sell City filter container on Black Market tab (since destination is always Black Market)
+      // Update City Filter label and visibility depending on active tab
+      const buyCityLabel = document.getElementById('filter-buy-city-label');
       const sellCityCont = document.getElementById('filter-sell-city-container');
-      if (sellCityCont) {
-        sellCityCont.style.display = (tab === 'blackmarket') ? 'none' : 'block';
+
+      if (tab === 'prices') {
+        if (buyCityLabel) buyCityLabel.textContent = 'City / Market:';
+        if (sellCityCont) sellCityCont.style.display = 'none';
+      } else if (tab === 'blackmarket') {
+        if (buyCityLabel) buyCityLabel.textContent = 'Buy City:';
+        if (sellCityCont) sellCityCont.style.display = 'none';
+      } else if (tab === 'crafting') {
+        if (buyCityLabel) buyCityLabel.textContent = 'Craft City:';
+        if (sellCityCont) sellCityCont.style.display = 'block';
+      } else {
+        if (buyCityLabel) buyCityLabel.textContent = 'Buy City:';
+        if (sellCityCont) sellCityCont.style.display = 'block';
       }
 
       currentPage = 1;
@@ -1868,9 +1882,9 @@ class FlipDataStore:
                         "age_minutes": age_minutes,
                     })
 
-            # Sort prices so freshest appear at the top, cap at top 500
+            # Sort prices so freshest appear at the top, cap at top 2500
             serialized_prices.sort(key=lambda x: x["age_minutes"])
-            serialized_prices = serialized_prices[:500]
+            serialized_prices = serialized_prices[:2500]
 
         # Crafting calculations
         serialized_crafting: list[dict[str, Any]] = []

@@ -34,6 +34,7 @@ class AppConfig:
             "Martlock",
             "Thetford",
             "Caerleon",
+            "Black Market",
         ]
     )
     qualities: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
