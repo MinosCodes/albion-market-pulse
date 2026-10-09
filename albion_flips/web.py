@@ -55,7 +55,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Albion Market Analyzer</title>
+  <title>Albion Market Pulse - Albion Market Analyzer</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <style>
     :root {
       --bg: #0b0d14;
@@ -1714,6 +1715,10 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
+        elif clean_path == "/favicon.ico":
+            self.send_response(200)
+            self.send_header("Content-Type", "image/x-icon")
+            self.end_headers()
         else:
             self.send_response(404)
             self.end_headers()
@@ -1738,6 +1743,24 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(content)))
             self.end_headers()
             self.wfile.write(content)
+        elif clean_path == "/favicon.ico":
+            icon_path = Path("assets/icon.ico")
+            if not icon_path.is_file():
+                icon_path = Path("assets/icon.png")
+            if icon_path.is_file():
+                try:
+                    with open(icon_path, "rb") as f:
+                        data = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/x-icon" if icon_path.suffix == ".ico" else "image/png")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                except Exception:
+                    pass
+            self.send_response(404)
+            self.end_headers()
         elif clean_path == "/api/flips":
             self._send_json(self.store.get_data())
         elif clean_path == "/api/refresh":

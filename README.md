@@ -96,7 +96,14 @@ Open `config.json` and adjust:
 
 ### 3. Run the Analyzer & Web Dashboard
 
-To launch continuous watch mode with the interactive web dashboard:
+#### Option A: 1-Click Desktop App (Zero-Config)
+- **macOS**: Double-click **`Albion Market Pulse.app`** on your Desktop or in the project folder. It launches the service in the background and opens the dashboard in your default browser.
+- **Windows**:
+  - Run **`Create-Desktop-Shortcut.bat`** once to pin **Albion Market Pulse** directly to your Windows Desktop with the custom icon.
+  - Or double-click **`Start-Albion-Pulse.bat`** anytime to launch.
+
+#### Option B: Terminal Command
+To launch continuous watch mode with the interactive web dashboard from your command line:
 
 ```bash
 python -m albion_flips.cli --watch --web
