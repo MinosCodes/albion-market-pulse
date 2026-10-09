@@ -351,3 +351,84 @@ def test_black_market_flips() -> None:
     # 3. No flips buying from Black Market
     assert not any(f.buy_city == "Black Market" for f in flips)
 
+
+def test_cross_quality_matching() -> None:
+    """Verifies that higher quality items can fill lower quality buy orders (e.g. Q2/Q3 to Q1 BM buy order)."""
+    cfg = get_test_config()
+    prices = [
+        # Martlock has Quality 2 (Good) Bag for 5,000
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Martlock",
+            quality=2,
+            sell_price_min=5000,
+            sell_price_min_date="2026-10-09T08:20:00",
+            sell_price_max=5000,
+            sell_price_max_date="2026-10-09T08:20:00",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+        # Black Market has Quality 1 (Normal) Buy Order for 8,000
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Black Market",
+            quality=1,
+            sell_price_min=0,
+            sell_price_min_date="",
+            sell_price_max=0,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=8000,
+            buy_price_max_date="2026-10-09T08:20:00",
+        ),
+    ]
+
+    flips = analyze_flips(prices, [], cfg, now=TEST_NOW)
+    bm_flips = [f for f in flips if f.sell_city == "Black Market"]
+
+    assert len(bm_flips) == 1
+    assert bm_flips[0].item_id == "T4_BAG"
+    assert bm_flips[0].quality == 2  # The purchased item quality is 2
+    assert bm_flips[0].sell_price == 8000
+    assert bm_flips[0].exit_type == ExitType.INSTANT_SELL
+    assert bm_flips[0].profit_per_item == pytest.approx(2680.0)
+
+
+def test_tier_3_refining_supported() -> None:
+    """Verifies that Tier 3 refining recipes are properly analyzed."""
+    cfg = get_test_config()
+    prices = [
+        # T3 Wood in Fort Sterling
+        PriceRecord.from_dict({
+            "item_id": "T3_WOOD", "city": "Fort Sterling", "quality": 1,
+            "sell_price_min": 50, "sell_price_min_date": "2026-10-09T08:20:00",
+            "sell_price_max": 50, "sell_price_max_date": "2026-10-09T08:20:00",
+            "buy_price_min": 0, "buy_price_min_date": "", "buy_price_max": 0, "buy_price_max_date": ""
+        }),
+        # T2 Planks in Fort Sterling
+        PriceRecord.from_dict({
+            "item_id": "T2_PLANKS", "city": "Fort Sterling", "quality": 1,
+            "sell_price_min": 30, "sell_price_min_date": "2026-10-09T08:20:00",
+            "sell_price_max": 30, "sell_price_max_date": "2026-10-09T08:20:00",
+            "buy_price_min": 0, "buy_price_min_date": "", "buy_price_max": 0, "buy_price_max_date": ""
+        }),
+        # T3 Planks selling in Lymhurst
+        PriceRecord.from_dict({
+            "item_id": "T3_PLANKS", "city": "Lymhurst", "quality": 1,
+            "sell_price_min": 250, "sell_price_min_date": "2026-10-09T08:20:00",
+            "sell_price_max": 250, "sell_price_max_date": "2026-10-09T08:20:00",
+            "buy_price_min": 0, "buy_price_min_date": "", "buy_price_max": 0, "buy_price_max_date": ""
+        }),
+    ]
+
+    crafts = analyze_crafting(prices, cfg, focus=False)
+    t3_wood_craft = [c for c in crafts if c.item_id == "T3_PLANKS"]
+    assert len(t3_wood_craft) >= 1
+    assert t3_wood_craft[0].tier == 3
+    assert t3_wood_craft[0].craft_type == "Wood Refining"
+    assert t3_wood_craft[0].craft_city == "Fort Sterling"
+
+

@@ -1,7 +1,7 @@
 {
   "server": "europe",
   "cities": ["Bridgewatch", "Fort Sterling", "Lymhurst", "Martlock", "Thetford", "Caerleon"],
-  "qualities": [1],
+  "qualities": [1, 2, 3, 4, 5],
   "premium": true,
   "tax_rate_premium": 0.04,
   "tax_rate_standard": 0.08,

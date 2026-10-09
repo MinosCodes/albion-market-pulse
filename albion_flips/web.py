@@ -879,7 +879,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
       if (fTier !== 'all' && Number(item.tier) !== Number(fTier)) return false;
       if (fEnchant !== 'all' && Number(item.enchant) !== Number(fEnchant)) return false;
-      if (type !== 'crafting' && fQuality !== 'all' && Number(item.quality) !== Number(fQuality)) return false;
+      if (type !== 'crafting' && fQuality !== 'all' && Number(item.quality || 1) !== Number(fQuality)) return false;
 
       const fAgeElem = document.getElementById('filter-age');
       if (fAgeElem && fAgeElem.value !== 'all') {
@@ -1571,10 +1571,10 @@ class FlipDataStore:
 
         # Sort primarily by profit per item
         serialized_flips.sort(key=lambda x: x["profit_per_item"], reverse=True)
-        serialized_flips = serialized_flips[:350]
+        serialized_flips = serialized_flips[:2500]
 
         serialized_blackmarket.sort(key=lambda x: x["profit_per_item"], reverse=True)
-        serialized_blackmarket = serialized_blackmarket[:350]
+        serialized_blackmarket = serialized_blackmarket[:2500]
 
 
         serialized_prices = []
@@ -1611,16 +1611,16 @@ class FlipDataStore:
                         "age_minutes": age_minutes,
                     })
 
-            # Sort prices so freshest appear at the top, cap at top 150
+            # Sort prices so freshest appear at the top, cap at top 500
             serialized_prices.sort(key=lambda x: x["age_minutes"])
-            serialized_prices = serialized_prices[:150]
+            serialized_prices = serialized_prices[:500]
 
         # Crafting calculations
         serialized_crafting: list[dict[str, Any]] = []
         serialized_focus_crafting: list[dict[str, Any]] = []
         if prices:
             craft_ops = analyze_crafting(prices, config, focus=False, item_names=ITEM_NAMES)
-            for c in craft_ops[:150]:
+            for c in craft_ops[:500]:
                 serialized_crafting.append({
                     "item_id": c.item_id,
                     "item_name": c.item_name,

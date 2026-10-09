@@ -121,17 +121,17 @@ def analyze_flips(
     elif now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
 
-    # Group price records by (item_id, quality)
-    prices_by_item: dict[tuple[str, int], list[PriceRecord]] = {}
+    # Group price records by item_id
+    prices_by_item: dict[str, list[PriceRecord]] = {}
     for p in prices:
-        prices_by_item.setdefault((p.item_id, p.quality), []).append(p)
+        prices_by_item.setdefault(p.item_id, []).append(p)
 
     tax_rate = config.active_tax_rate
     setup_rate = config.setup_fee_rate
 
     opportunities: list[FlipOpportunity] = []
 
-    for (item_id, quality), records in prices_by_item.items():
+    for item_id, records in prices_by_item.items():
         # Compare every pair of distinct cities: buy_rec (city A) -> sell_rec (city B)
         for buy_rec in records:
             # Players cannot purchase items from the Black Market
@@ -147,6 +147,7 @@ def analyze_flips(
                 continue
 
             buy_price = buy_rec.sell_price_min
+            buy_quality = buy_rec.quality
 
             for sell_rec in records:
                 if sell_rec.city == buy_rec.city:
@@ -157,33 +158,37 @@ def analyze_flips(
                     continue
 
                 # Evaluate Exit 1: Sell Order (sell_price_min in city B)
+                # Listing a sell order in City B requires the exact same quality as purchased
                 opt_order: tuple[float, float, int, float] | None = None
-                if sell_rec.sell_price_min > 0 and not sell_rec.sell_price_min_date.startswith("0001-01-01"):
-                    sell_order_age = calculate_age_minutes(sell_rec.sell_price_min_date, now)
-                    if sell_order_age is not None and sell_order_age <= config.max_price_age_minutes:
-                        profit_order = calculate_sell_order_profit(
-                            buy_price=buy_price,
-                            sell_price=sell_rec.sell_price_min,
-                            tax_rate=tax_rate,
-                            setup_fee_rate=setup_rate,
-                        )
-                        margin_order = calculate_margin(profit_order, buy_price)
-                        flip_order_age = max(buy_age, sell_order_age)
-                        opt_order = (profit_order, margin_order, sell_rec.sell_price_min, flip_order_age)
+                if sell_rec.quality == buy_quality:
+                    if sell_rec.sell_price_min > 0 and not sell_rec.sell_price_min_date.startswith("0001-01-01"):
+                        sell_order_age = calculate_age_minutes(sell_rec.sell_price_min_date, now)
+                        if sell_order_age is not None and sell_order_age <= config.max_price_age_minutes:
+                            profit_order = calculate_sell_order_profit(
+                                buy_price=buy_price,
+                                sell_price=sell_rec.sell_price_min,
+                                tax_rate=tax_rate,
+                                setup_fee_rate=setup_rate,
+                            )
+                            margin_order = calculate_margin(profit_order, buy_price)
+                            flip_order_age = max(buy_age, sell_order_age)
+                            opt_order = (profit_order, margin_order, sell_rec.sell_price_min, flip_order_age)
 
                 # Evaluate Exit 2: Instant Sell into Buy Order (buy_price_max in city B)
+                # In Albion Online, any item of quality >= buy order quality can fulfill the buy order!
                 opt_instant: tuple[float, float, int, float] | None = None
-                if sell_rec.buy_price_max > 0 and not sell_rec.buy_price_max_date.startswith("0001-01-01"):
-                    instant_age = calculate_age_minutes(sell_rec.buy_price_max_date, now)
-                    if instant_age is not None and instant_age <= config.max_price_age_minutes:
-                        profit_instant = calculate_instant_profit(
-                            buy_price=buy_price,
-                            buyer_bid=sell_rec.buy_price_max,
-                            tax_rate=tax_rate,
-                        )
-                        margin_instant = calculate_margin(profit_instant, buy_price)
-                        flip_instant_age = max(buy_age, instant_age)
-                        opt_instant = (profit_instant, margin_instant, sell_rec.buy_price_max, flip_instant_age)
+                if buy_quality >= sell_rec.quality:
+                    if sell_rec.buy_price_max > 0 and not sell_rec.buy_price_max_date.startswith("0001-01-01"):
+                        instant_age = calculate_age_minutes(sell_rec.buy_price_max_date, now)
+                        if instant_age is not None and instant_age <= config.max_price_age_minutes:
+                            profit_instant = calculate_instant_profit(
+                                buy_price=buy_price,
+                                buyer_bid=sell_rec.buy_price_max,
+                                tax_rate=tax_rate,
+                            )
+                            margin_instant = calculate_margin(profit_instant, buy_price)
+                            flip_instant_age = max(buy_age, instant_age)
+                            opt_instant = (profit_instant, margin_instant, sell_rec.buy_price_max, flip_instant_age)
 
                 # If neither exit is valid and fresh, skip
                 if opt_order is None and opt_instant is None:
@@ -225,9 +230,17 @@ def analyze_flips(
                     history_records=history,
                     item_id=item_id,
                     city=sell_rec.city,
-                    quality=quality,
+                    quality=sell_rec.quality,
                     volume_days=config.volume_days,
                 )
+                if dest_volume is None and sell_rec.quality > 1:
+                    dest_volume = compute_daily_volume(
+                        history_records=history,
+                        item_id=item_id,
+                        city=sell_rec.city,
+                        quality=1,
+                        volume_days=config.volume_days,
+                    )
 
                 history_missing = (dest_volume is None)
                 if not history_missing and dest_volume < config.min_daily_volume:
@@ -235,10 +248,8 @@ def analyze_flips(
                     continue
 
                 # Rule 6: Attach risk labels
-                # Risk is evaluated for cities involved
                 buy_risk = config.risk.get(buy_rec.city, "low")
                 sell_risk = config.risk.get(sell_rec.city, "low")
-                # Overall risk label for the trip
                 if "high" in (buy_risk, sell_risk):
                     risk_label = "high"
                 elif "medium" in (buy_risk, sell_risk):
@@ -262,7 +273,7 @@ def analyze_flips(
                         avg_daily_volume=dest_volume,
                         data_age_minutes=chosen_age,
                         risk=risk_label,
-                        quality=quality,
+                        quality=buy_quality,
                         history_missing=history_missing,
                     )
                 )
@@ -392,11 +403,13 @@ def analyze_crafting(
         ("LEATHER", "HIDE", "Martlock", "Hide Refining"),
         ("STONEBLOCK", "ROCK", "Bridgewatch", "Stone Refining"),
     ]
-    raw_qty_map = {4: 2, 5: 3, 6: 4, 7: 5, 8: 5}
+    raw_qty_map = {3: 2, 4: 2, 5: 3, 6: 4, 7: 5, 8: 5}
 
     for out_base, raw_base, bonus_city, craft_label in refining_defs:
-        for tier in (4, 5, 6, 7, 8):
+        for tier in (3, 4, 5, 6, 7, 8):
             for enchant in (0, 1, 2, 3):
+                if tier == 3 and enchant > 0:
+                    continue
                 if enchant == 0:
                     out_id = f"T{tier}_{out_base}"
                     raw_id = f"T{tier}_{raw_base}"
@@ -469,11 +482,13 @@ def analyze_crafting(
 
     # 2. Equipment Crafting (Bags, Capes, Staffs, Weapons, Armors)
     eq_rrr = 0.435 if focus else 0.152
-    qty_by_tier = {4: 4, 5: 8, 6: 16}
+    qty_by_tier = {3: 2, 4: 4, 5: 8, 6: 16}
 
     for eq_type, label in (("BAG", "Bag Crafting"), ("CAPE", "Cape Crafting")):
-        for tier in (4, 5, 6):
+        for tier in (3, 4, 5, 6):
             for enchant in (0, 1, 2, 3):
+                if tier == 3 and enchant > 0:
+                    continue
                 suffix = f"@{enchant}" if enchant > 0 else ""
                 ench_lvl = f"_LEVEL{enchant}@{enchant}" if enchant > 0 else ""
                 item_id = f"T{tier}_{eq_type}{suffix}"

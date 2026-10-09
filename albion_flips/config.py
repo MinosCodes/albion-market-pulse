@@ -36,7 +36,7 @@ class AppConfig:
             "Caerleon",
         ]
     )
-    qualities: list[int] = field(default_factory=lambda: [1])
+    qualities: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
     premium: bool = True
     tax_rate_premium: float = 0.04
     tax_rate_standard: float = 0.08
@@ -121,7 +121,7 @@ class AppConfig:
                 "Thetford",
                 "Caerleon",
             ])),
-            qualities=list(data.get("qualities", [1])),
+            qualities=list(data.get("qualities", [1, 2, 3, 4, 5])),
             premium=bool(data.get("premium", True)),
             tax_rate_premium=float(data.get("tax_rate_premium", 0.04)),
             tax_rate_standard=float(data.get("tax_rate_standard", 0.08)),
