@@ -432,3 +432,145 @@ def test_tier_3_refining_supported() -> None:
     assert t3_wood_craft[0].craft_city == "Fort Sterling"
 
 
+def test_price_deduplication_newer_overwrites_older() -> None:
+    """Verifies that when multiple price scans for the same item/city exist, newer overwrites older."""
+    cfg = get_test_config()
+    cfg.cities = ["Martlock", "Black Market"]
+
+    # Two records for the same item at Black Market: older high price, newer lower price
+    prices = [
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Martlock",
+            quality=1,
+            sell_price_min=5000,
+            sell_price_min_date="2026-10-09T08:20:00",
+            sell_price_max=5000,
+            sell_price_max_date="2026-10-09T08:20:00",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+        # Older scan with high buy order (e.g. 50,000)
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Black Market",
+            quality=1,
+            sell_price_min=0,
+            sell_price_min_date="",
+            sell_price_max=0,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=50000,
+            buy_price_max_date="2026-10-09T08:00:00",
+        ),
+        # Newer scan with fulfilled/lower buy order (e.g. 5,200)
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Black Market",
+            quality=1,
+            sell_price_min=0,
+            sell_price_min_date="",
+            sell_price_max=0,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=5200,
+            buy_price_max_date="2026-10-09T08:25:00",
+        ),
+    ]
+
+    flips = analyze_flips(prices, [], cfg, now=TEST_NOW)
+    bm_flips = [f for f in flips if f.sell_city == "Black Market"]
+    # The newer scan (5200) overwrote the old scan (50000), resulting in no flip above min_profit
+    assert len(bm_flips) == 0
+
+
+def test_fulfilled_order_removes_phantom_profit() -> None:
+    """Verifies that marking an order as fulfilled removes it from flip opportunities."""
+    cfg = get_test_config()
+    cfg.cities = ["Martlock", "Black Market"]
+
+    prices = [
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Martlock",
+            quality=1,
+            sell_price_min=5000,
+            sell_price_min_date="2026-10-09T08:20:00",
+            sell_price_max=5000,
+            sell_price_max_date="2026-10-09T08:20:00",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Black Market",
+            quality=1,
+            sell_price_min=0,
+            sell_price_min_date="",
+            sell_price_max=0,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=12000,
+            buy_price_max_date="2026-10-09T08:15:00",
+        ),
+    ]
+
+    # Without fulfillment marker, flip is found
+    flips_active = analyze_flips(prices, [], cfg, now=TEST_NOW)
+    assert len(flips_active) == 1
+
+    # With fulfillment marker marked at 08:20 (after or equal to 08:15 price scan)
+    fulfilled = {("T4_BAG", "Black Market", 1): TEST_NOW}
+    flips_fulfilled = analyze_flips(prices, [], cfg, now=TEST_NOW, fulfilled_orders=fulfilled)
+    assert len(flips_fulfilled) == 0
+
+
+def test_price_override_recalculates_profit() -> None:
+    """Verifies that overriding a price updates the profit computation directly."""
+    cfg = get_test_config()
+    cfg.cities = ["Martlock", "Black Market"]
+
+    prices = [
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Martlock",
+            quality=1,
+            sell_price_min=5000,
+            sell_price_min_date="2026-10-09T08:20:00",
+            sell_price_max=5000,
+            sell_price_max_date="2026-10-09T08:20:00",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Black Market",
+            quality=1,
+            sell_price_min=0,
+            sell_price_min_date="",
+            sell_price_max=0,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=100000,  # Old stale price
+            buy_price_max_date="2026-10-09T08:10:00",
+        ),
+    ]
+
+    # User overrides price to 20,000
+    overrides = {("T4_BAG", "Black Market", 1): 20000}
+    flips = analyze_flips(prices, [], cfg, now=TEST_NOW, price_overrides=overrides)
+    assert len(flips) == 1
+    assert flips[0].sell_price == 20000
+
+
+

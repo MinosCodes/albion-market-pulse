@@ -163,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     web_store: FlipDataStore | None = None
     if web_enabled:
         web_store = FlipDataStore()
+        web_store.client = client
         start_web_server(web_store, port=config.web_port)
 
     notifier = Notifier(
@@ -198,7 +199,16 @@ def main(argv: list[str] | None = None) -> int:
             console.print(f"[yellow]Warning: Market API fetch failed: {exc}[/yellow]")
             return []
 
-        flips = analyze_flips(prices=prices, history=history, config=config, now=now)
+        fulfilled = web_store.fulfilled_orders if web_store else None
+        overrides = web_store.price_overrides if web_store else None
+        flips = analyze_flips(
+            prices=prices,
+            history=history,
+            config=config,
+            now=now,
+            fulfilled_orders=fulfilled,
+            price_overrides=overrides,
+        )
 
         # Sort based on --sort
         if args.sort == "margin":
@@ -214,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
                 last_refresh=refresh_str,
                 opportunities=flips,
                 prices=prices,
+                history=history,
                 now=now,
                 config=config,
             )

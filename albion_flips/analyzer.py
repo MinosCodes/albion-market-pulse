@@ -104,6 +104,8 @@ def analyze_flips(
     history: Sequence[HistoryRecord],
     config: AppConfig,
     now: datetime | None = None,
+    fulfilled_orders: dict[tuple[str, str, int], datetime] | None = None,
+    price_overrides: dict[tuple[str, str, int], int] | None = None,
 ) -> list[FlipOpportunity]:
     """Analyzes market price records and history against config criteria.
 
@@ -121,9 +123,104 @@ def analyze_flips(
     elif now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
 
+    # 1. Deduplicate prices by (item_id, city, quality), strictly keeping the freshest record.
+    # This guarantees that refreshing prices always overwrites older prices.
+    deduped_prices: dict[tuple[str, str, int], PriceRecord] = {}
+    for p in prices:
+        key = (p.item_id, p.city, p.quality)
+        existing = deduped_prices.get(key)
+        if existing is None:
+            deduped_prices[key] = p
+        else:
+            p_date = max(p.sell_price_min_date, p.buy_price_max_date)
+            ex_date = max(existing.sell_price_min_date, existing.buy_price_max_date)
+            if p_date >= ex_date:
+                deduped_prices[key] = p
+
+    # 2. Apply manual fulfillment markers & price overrides
+    active_records: list[PriceRecord] = []
+    for key, p in deduped_prices.items():
+        item_id, city, quality = key
+        # Check if user marked order as fulfilled (dead/completed in-game)
+        if fulfilled_orders and key in fulfilled_orders:
+            fulfilled_time = fulfilled_orders[key]
+            if p.buy_price_max > 0 and not p.buy_price_max_date.startswith("0001"):
+                try:
+                    b_date = datetime.fromisoformat(p.buy_price_max_date).replace(tzinfo=timezone.utc)
+                    if b_date <= fulfilled_time:
+                        p = PriceRecord(
+                            item_id=p.item_id,
+                            city=p.city,
+                            quality=p.quality,
+                            sell_price_min=p.sell_price_min,
+                            sell_price_min_date=p.sell_price_min_date,
+                            sell_price_max=p.sell_price_max,
+                            sell_price_max_date=p.sell_price_max_date,
+                            buy_price_min=p.buy_price_min,
+                            buy_price_min_date=p.buy_price_min_date,
+                            buy_price_max=0,
+                            buy_price_max_date="0001-01-01T00:00:00",
+                        )
+                except Exception:
+                    pass
+
+        # Check if user manually overrode the price
+        if price_overrides and key in price_overrides:
+            override_val = price_overrides[key]
+            if city == "Black Market":
+                p = PriceRecord(
+                    item_id=p.item_id,
+                    city=p.city,
+                    quality=p.quality,
+                    sell_price_min=0 if override_val == 0 else p.sell_price_min,
+                    sell_price_min_date=p.sell_price_min_date,
+                    sell_price_max=p.sell_price_max,
+                    sell_price_max_date=p.sell_price_max_date,
+                    buy_price_min=p.buy_price_min,
+                    buy_price_min_date=p.buy_price_min_date,
+                    buy_price_max=override_val,
+                    buy_price_max_date=now.isoformat() if override_val > 0 else "0001-01-01T00:00:00",
+                )
+            else:
+                p = PriceRecord(
+                    item_id=p.item_id,
+                    city=p.city,
+                    quality=p.quality,
+                    sell_price_min=override_val,
+                    sell_price_min_date=now.isoformat() if override_val > 0 else "0001-01-01T00:00:00",
+                    sell_price_max=p.sell_price_max,
+                    sell_price_max_date=p.sell_price_max_date,
+                    buy_price_min=p.buy_price_min,
+                    buy_price_min_date=p.buy_price_min_date,
+                    buy_price_max=p.buy_price_max,
+                    buy_price_max_date=p.buy_price_max_date,
+                )
+
+        active_records.append(p)
+
+    # 3. Add any standalone price overrides that had no prior record
+    if price_overrides:
+        for (item_id, city, quality), override_val in price_overrides.items():
+            if (item_id, city, quality) not in deduped_prices:
+                active_records.append(
+                    PriceRecord(
+                        item_id=item_id,
+                        city=city,
+                        quality=quality,
+                        sell_price_min=override_val if city != "Black Market" else 0,
+                        sell_price_min_date=now.isoformat() if (city != "Black Market" and override_val > 0) else "0001-01-01T00:00:00",
+                        sell_price_max=override_val if city != "Black Market" else 0,
+                        sell_price_max_date=now.isoformat() if (city != "Black Market" and override_val > 0) else "0001-01-01T00:00:00",
+                        buy_price_min=0,
+                        buy_price_min_date="0001-01-01T00:00:00",
+                        buy_price_max=override_val if city == "Black Market" else 0,
+                        buy_price_max_date=now.isoformat() if (city == "Black Market" and override_val > 0) else "0001-01-01T00:00:00",
+                    )
+                )
+
     # Group price records by item_id
     prices_by_item: dict[str, list[PriceRecord]] = {}
-    for p in prices:
+    for p in active_records:
         prices_by_item.setdefault(p.item_id, []).append(p)
 
     tax_rate = config.active_tax_rate

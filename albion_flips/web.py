@@ -562,6 +562,87 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       0% { color: #34d399; text-shadow: 0 0 10px #10b981; }
       100% { color: var(--text); text-shadow: none; }
     }
+
+    /* Fulfill, Edit Price, Refresh Item & Action Buttons */
+    .btn-fulfill {
+      background: rgba(239, 68, 68, 0.15) !important;
+      border: 1px solid rgba(239, 68, 68, 0.45) !important;
+      color: #fca5a5 !important;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 0.73rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .btn-fulfill:hover {
+      background: rgba(239, 68, 68, 0.4) !important;
+      border-color: #ef4444 !important;
+      color: #ffffff !important;
+      box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+    }
+    .btn-edit-price {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      padding: 1px 4px;
+      font-size: 0.75rem;
+      vertical-align: middle;
+      transition: color 0.15s;
+    }
+    .btn-edit-price:hover {
+      color: #38bdf8;
+    }
+    .btn-refresh-item {
+      background: transparent;
+      border: none;
+      color: #64748b;
+      cursor: pointer;
+      padding: 1px 4px;
+      font-size: 0.75rem;
+      transition: transform 0.2s, color 0.2s;
+    }
+    .btn-refresh-item:hover {
+      color: #10b981;
+      transform: rotate(90deg);
+    }
+    .btn-refresh-item.spinning {
+      display: inline-block;
+      animation: spin-anim 0.6s linear infinite;
+      color: #38bdf8;
+    }
+    tr.row-fade-out {
+      opacity: 0 !important;
+      transform: translateX(40px) !important;
+      transition: all 0.3s ease !important;
+    }
+
+    /* Overrides Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-box {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 600px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    }
   </style>
 </head>
 <body>
@@ -583,6 +664,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="status-text">
         Last Refresh: <span id="last-refresh" style="color: var(--text); font-weight: 600;">Connecting...</span>
       </div>
+      <button id="btn-overrides" class="btn btn-secondary" style="display: none; border-color: #f59e0b; color: #fbbf24;" onclick="openOverridesManager()" title="Manage fulfilled orders & price overrides">
+        🏷️ Overrides (<span id="override-count">0</span>)
+      </button>
       <button id="btn-browser-notif" class="btn btn-secondary" onclick="toggleBrowserNotifications()">
         🔔 Alerts: OFF
       </button>
@@ -618,6 +702,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div id="quick-blackmarket" class="quick-pills" style="display: none;">
       <span class="filter-label">BM Quick Filters:</span>
       <button class="pill-btn active" onclick="setBmFilter('all', this)">🔥 All BM Deals</button>
+      <button class="pill-btn" onclick="setBmFilter('fresh_only', this)">🟢 Fresh Only (&le;20m)</button>
       <button class="pill-btn" onclick="setBmFilter('just_arrived', this)">⚡ Just Arrived (&lt;15m)</button>
       <button class="pill-btn" onclick="setBmFilter('instant', this)">⚡ Direct Buy Orders (Instant Cash)</button>
       <button class="pill-btn" onclick="setBmFilter('weapons', this)">⚔️ Weapons</button>
@@ -747,10 +832,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <th class="num" onclick="sortFlips('avg_daily_volume', true)">Daily Vol</th>
           <th class="num" onclick="sortFlips('data_age_minutes', true)">Data Age</th>
           <th onclick="sortFlips('risk')">Route Risk</th>
+          <th>Action</th>
         </tr>
       </thead>
       <tbody id="flips-body">
-        <tr><td colspan="14" style="text-align: center; padding: 24px; color: var(--text-muted);">Connecting to analyzer backend...</td></tr>
+        <tr><td colspan="15" style="text-align: center; padding: 24px; color: var(--text-muted);">Connecting to analyzer backend...</td></tr>
       </tbody>
     </table>
   </div>
@@ -846,6 +932,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <span id="page-current" style="font-weight: 600; color: var(--text);">Page 1</span>
       <button id="btn-next" class="btn btn-secondary" onclick="nextPage()" disabled>Next ▶</button>
     </div>
+  <!-- OVERRIDES MANAGER MODAL -->
+  <div id="overrides-modal" class="modal-overlay" style="display: none;" onclick="closeOverridesModal(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <h3 style="margin: 0; color: #f8fafc; font-size: 1.15rem;">🏷️ Active Price & Fulfillment Overrides</h3>
+        <button class="btn btn-secondary" onclick="closeOverridesModal()" style="padding: 2px 8px;">✕</button>
+      </div>
+      <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 14px; line-height: 1.4;">
+        These items were marked fulfilled or had their prices manually overwritten in-game. They prevent stale AODP market records from showing phantom profits.
+      </p>
+      <div id="overrides-list" style="margin-bottom: 20px; max-height: 280px; overflow-y: auto;">
+        <!-- Filled dynamically -->
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; pt: 8px;">
+        <button class="btn" onclick="clearAllOverrides()" style="background: #991b1b; border-color: #ef4444; color: #fee2e2;">
+          🗑️ Clear All Overrides
+        </button>
+        <button class="btn btn-secondary" onclick="closeOverridesModal()">
+          Close
+        </button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -913,7 +1021,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <span>${safeName}</span>
               <span class="wiki-badge" title="Open Wiki Guide">Wiki ↗</span>
             </a>
-            <span class="item-id-sub">${safeId}</span>
+            <div style="display:flex; align-items:center; gap:4px;">
+              <span class="item-id-sub">${safeId}</span>
+              <button class="btn-refresh-item" onclick="event.stopPropagation(); refreshSingleItem('${safeId}', this)" title="Instantly refresh live AODP price for this item">🔄</button>
+            </div>
           </div>
         </div>
       `;
@@ -1113,6 +1224,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (fBuyCity !== 'all' && item.buy_city !== fBuyCity) return false;
 
         // Quick filters for Black Market
+        if (bmQuickFilter === 'fresh_only' && Number(item.data_age_minutes) > 20) return false;
         if (bmQuickFilter === 'just_arrived' && Number(item.data_age_minutes) > 15) return false;
         if (bmQuickFilter === 'instant' && item.exit_type !== 'instant_sell') return false;
         if (bmQuickFilter === 'weapons' && !item.item_id.includes('MAIN_') && !item.item_id.includes('2H_')) return false;
@@ -1191,6 +1303,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const totalP = Number(f.total_profit) || 0;
         const age = Math.round(Number(f.data_age_minutes) || 0);
         const ageClass = (age <= 20) ? 'class="fresh-age"' : '';
+        const safeItemName = (f.item_name || f.item_id).replace(/'/g, "\\'");
 
         return `
           <tr>
@@ -1200,7 +1313,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td>${f.buy_city || '-'}</td>
             <td>${f.sell_city || '-'}</td>
             <td class="num">${buyP.toLocaleString()}</td>
-            <td class="num">${sellP.toLocaleString()}</td>
+            <td class="num">
+              ${sellP.toLocaleString()}
+              <button class="btn-edit-price" onclick="promptOverridePrice('${f.item_id}', '${f.sell_city}', ${f.quality || 1}, ${sellP})" title="Overwrite price if different in-game">✏️</button>
+            </td>
             <td>${exitBadge}</td>
             <td class="num profit-val">+${Math.round(profit).toLocaleString()}</td>
             <td class="num margin-val">+${margin.toFixed(1)}%</td>
@@ -1208,6 +1324,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td class="num">${volDisplay}</td>
             <td class="num" ${ageClass}>${age}m ago</td>
             <td><span class="${riskClass}">${(f.risk || 'low').toUpperCase()}</span></td>
+            <td style="white-space: nowrap;">
+              <button class="btn btn-secondary" style="padding: 3px 8px; font-size: 0.75rem;" onclick="copyItemName('${safeItemName}', this)" title="Copy search name">
+                📋 Copy
+              </button>
+              <button class="btn-fulfill" style="margin-left: 4px;" onclick="markOrderFulfilled('${f.item_id}', '${f.sell_city}', ${f.quality || 1}, this)" title="Order fulfilled or price changed in-game? Click to remove this deal & overwrite price">
+                ✓ Fulfilled
+              </button>
+            </td>
           </tr>
         `;
       }).join('');
@@ -1288,16 +1412,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td>${tierBadge} ${qBadge} ${newArrivalBadge}</td>
             <td><strong>${f.buy_city || '-'}</strong></td>
             <td class="num">${buyP.toLocaleString()}</td>
-            <td class="num" style="color: #60a5fa; font-weight: 600;">${sellP.toLocaleString()}</td>
+            <td class="num" style="color: #60a5fa; font-weight: 600;">
+              ${sellP.toLocaleString()}
+              <button class="btn-edit-price" onclick="promptOverridePrice('${f.item_id}', '${f.sell_city || 'Black Market'}', ${f.quality || 1}, ${sellP})" title="Overwrite price if lower/different in-game">✏️</button>
+            </td>
             <td>${exitBadge}</td>
             <td class="num profit-val">+${Math.round(profit).toLocaleString()}</td>
             <td class="num margin-val">+${margin.toFixed(1)}%</td>
             <td class="num profit-val">+${Math.round(totalP).toLocaleString()}</td>
             <td class="num">${volDisplay}</td>
-            <td class="num" ${ageClass}>${age}m ago</td>
-            <td>
+            <td class="num" ${ageClass}>${age}m ago ${age > 20 ? '<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-size: 0.68rem;" title="Scanned ' + age + 'm ago. High-profit Black Market orders are frequently fulfilled quickly in-game!">⚠️ Verify in BM</span>' : ''}</td>
+            <td style="white-space: nowrap;">
               <button class="btn btn-secondary" style="padding: 3px 8px; font-size: 0.75rem;" onclick="copyItemName('${safeItemName}', this)" title="Copy in-game search name">
                 📋 Copy
+              </button>
+              <button class="btn-fulfill" style="margin-left: 4px;" onclick="markOrderFulfilled('${f.item_id}', '${f.sell_city || 'Black Market'}', ${f.quality || 1}, this)" title="Order fulfilled or gone in-game? Click to remove this deal & overwrite price">
+                ✓ Fulfilled
               </button>
             </td>
           </tr>
@@ -1513,6 +1643,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         const allFlipsForAlerts = [...flipsData, ...blackmarketData];
         checkBrowserNotifications(allFlipsForAlerts, data.last_refresh);
+        updateOverridesBadge(data);
         renderCurrentView();
 
       } catch (err) {
@@ -1673,6 +1804,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             lastSeenRefresh = data.last_refresh;
           }
           checkBrowserNotifications(flipsData, data.last_refresh);
+          updateOverridesBadge(data);
           renderCurrentView();
 
           setApiRefreshing(false);
@@ -1685,6 +1817,165 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         console.error('Error triggering refresh:', err);
         setApiRefreshing(false);
         showToast(`❌ <strong>Sync Failed:</strong> Could not connect to local market server.`);
+      }
+    }
+
+    let currentOverrides = [];
+
+    async function markOrderFulfilled(itemId, city, quality, btn) {
+      if (btn) {
+        btn.textContent = '✓ Done!';
+        btn.disabled = true;
+        const tr = btn.closest('tr');
+        if (tr) tr.classList.add('row-fade-out');
+      }
+
+      showToast(`✓ Order marked as fulfilled for ${itemId} (${city})!`);
+
+      try {
+        const res = await fetch('/api/fulfill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: itemId, city: city, quality: quality })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          flipsData = data.flips || [];
+          blackmarketData = data.blackmarket || [];
+          craftingData = data.crafting || [];
+          focusCraftingData = data.focus_crafting || [];
+          pricesData = data.recent_prices || [];
+          updateOverridesBadge(data);
+          renderCurrentView();
+        }
+      } catch (err) {
+        console.error('Failed to mark order fulfilled:', err);
+      }
+    }
+
+    async function promptOverridePrice(itemId, city, quality, currentPrice) {
+      const input = prompt(`Enter current price for ${itemId} in ${city}:\n(Enter 0 if the order is fulfilled or completely gone)`, currentPrice);
+      if (input === null) return;
+      const cleanNum = parseInt(input.replace(/[^0-9]/g, ''), 10);
+      if (isNaN(cleanNum)) {
+        alert('Please enter a valid numeric silver price.');
+        return;
+      }
+
+      showToast(`Updating price for ${itemId}...`);
+      try {
+        const res = await fetch('/api/override', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: itemId, city: city, quality: quality, price: cleanNum })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          flipsData = data.flips || [];
+          blackmarketData = data.blackmarket || [];
+          craftingData = data.crafting || [];
+          focusCraftingData = data.focus_crafting || [];
+          pricesData = data.recent_prices || [];
+          updateOverridesBadge(data);
+          renderCurrentView();
+          if (cleanNum === 0) {
+            showToast(`✓ Order for ${itemId} marked as fulfilled (price set to 0).`);
+          } else {
+            showToast(`✓ Price for ${itemId} in ${city} updated to ${cleanNum.toLocaleString()} silver!`);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to override price:', err);
+      }
+    }
+
+    async function refreshSingleItem(itemId, btn) {
+      if (btn) btn.classList.add('spinning');
+      showToast(`Fetching latest AODP prices for ${itemId}...`);
+      try {
+        const res = await fetch('/api/refresh_item', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: itemId })
+        });
+        if (btn) btn.classList.remove('spinning');
+        if (res.ok) {
+          const data = await res.json();
+          flipsData = data.flips || [];
+          blackmarketData = data.blackmarket || [];
+          craftingData = data.crafting || [];
+          focusCraftingData = data.focus_crafting || [];
+          pricesData = data.recent_prices || [];
+          updateOverridesBadge(data);
+          renderCurrentView();
+          showToast(`✓ Refreshed ${itemId} with latest live prices.`);
+        }
+      } catch (err) {
+        if (btn) btn.classList.remove('spinning');
+        console.error('Failed to refresh item:', err);
+      }
+    }
+
+    function updateOverridesBadge(data) {
+      const count = data.overrides_count || 0;
+      currentOverrides = data.overrides || [];
+      const btn = document.getElementById('btn-overrides');
+      const countElem = document.getElementById('override-count');
+      if (btn && countElem) {
+        countElem.textContent = count;
+        btn.style.display = (count > 0) ? 'inline-flex' : 'none';
+      }
+    }
+
+    function openOverridesManager() {
+      const modal = document.getElementById('overrides-modal');
+      const list = document.getElementById('overrides-list');
+      if (!modal || !list) return;
+
+      if (!currentOverrides || currentOverrides.length === 0) {
+        list.innerHTML = '<div style="color: #64748b; padding: 12px 0;">No active overrides or fulfilled markers.</div>';
+      } else {
+        list.innerHTML = currentOverrides.map(o => {
+          const label = (o.type === 'fulfilled') ? '🔴 Order Fulfilled' : `✏️ Price: ${o.price.toLocaleString()}`;
+          return `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #1e293b; border-radius: 6px; margin-bottom: 6px; font-size: 0.84rem;">
+              <div>
+                <strong>${escapeHtml(o.item_name || o.item_id)}</strong> 
+                <span style="color:#94a3b8;">(${o.city} Q${o.quality})</span>
+              </div>
+              <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24;">${label}</span>
+            </div>
+          `;
+        }).join('');
+      }
+
+      modal.style.display = 'flex';
+    }
+
+    function closeOverridesModal(event) {
+      if (event && event.target !== event.currentTarget) return;
+      const modal = document.getElementById('overrides-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function clearAllOverrides() {
+      if (!confirm('Clear all manual fulfilled markers and price overrides?')) return;
+      try {
+        const res = await fetch('/api/clear_overrides', { method: 'POST' });
+        if (res.ok) {
+          const data = await res.json();
+          flipsData = data.flips || [];
+          blackmarketData = data.blackmarket || [];
+          craftingData = data.crafting || [];
+          focusCraftingData = data.focus_crafting || [];
+          pricesData = data.recent_prices || [];
+          updateOverridesBadge(data);
+          closeOverridesModal();
+          renderCurrentView();
+          showToast('✓ All overrides cleared. Original live prices restored.');
+        }
+      } catch (err) {
+        console.error('Failed to clear overrides:', err);
       }
     }
 
@@ -1736,6 +2027,112 @@ class FlipDataStore:
         self.focus_crafting: list[dict[str, Any]] = []
         self.recent_prices: list[dict[str, Any]] = []
         self.refresh_callback: Callable[[], Any] | None = None
+        self.fulfilled_orders: dict[tuple[str, str, int], datetime] = {}
+        self.price_overrides: dict[tuple[str, str, int], int] = {}
+        self.last_prices: list[PriceRecord] = []
+        self.last_history: list[HistoryRecord] = []
+        self.last_config: AppConfig | None = None
+        self.client: Any = None
+        self._load_overrides()
+
+    def _load_overrides(self) -> None:
+        cache_file = Path(".cache/overrides.json")
+        if cache_file.is_file():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                for item in data.get("fulfilled", []):
+                    key = (item["item_id"], item["city"], int(item["quality"]))
+                    dt = datetime.fromisoformat(item["timestamp"]).replace(tzinfo=timezone.utc)
+                    self.fulfilled_orders[key] = dt
+                for item in data.get("overrides", []):
+                    key = (item["item_id"], item["city"], int(item["quality"]))
+                    self.price_overrides[key] = int(item["price"])
+            except Exception as e:
+                logger.warning("Could not load overrides cache: %s", e)
+
+    def _save_overrides(self) -> None:
+        try:
+            cache_file = Path(".cache/overrides.json")
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "fulfilled": [
+                    {"item_id": k[0], "city": k[1], "quality": k[2], "timestamp": v.isoformat()}
+                    for k, v in self.fulfilled_orders.items()
+                ],
+                "overrides": [
+                    {"item_id": k[0], "city": k[1], "quality": k[2], "price": v}
+                    for k, v in self.price_overrides.items()
+                ],
+            }
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception as e:
+            logger.warning("Could not save overrides cache: %s", e)
+
+    def mark_fulfilled(self, item_id: str, city: str, quality: int = 1) -> None:
+        with self._lock:
+            key = (item_id, city, quality)
+            self.fulfilled_orders[key] = datetime.now(timezone.utc)
+            self.price_overrides.pop(key, None)
+            self._save_overrides()
+        self.recompute()
+
+    def set_price_override(self, item_id: str, city: str, quality: int, price: int) -> None:
+        with self._lock:
+            key = (item_id, city, quality)
+            if price <= 0:
+                self.fulfilled_orders[key] = datetime.now(timezone.utc)
+                self.price_overrides.pop(key, None)
+            else:
+                self.price_overrides[key] = price
+                self.fulfilled_orders.pop(key, None)
+            self._save_overrides()
+        self.recompute()
+
+    def clear_overrides(self) -> None:
+        with self._lock:
+            self.fulfilled_orders.clear()
+            self.price_overrides.clear()
+            self._save_overrides()
+        self.recompute()
+
+    def refresh_single_item(self, item_id: str) -> None:
+        if not self.client or not self.last_config:
+            return
+        fresh_prices = self.client.get_prices(
+            item_ids=[item_id],
+            cities=self.last_config.cities,
+            qualities=self.last_config.qualities,
+            bypass_cache=True,
+        )
+        with self._lock:
+            existing_prices = [p for p in self.last_prices if p.item_id != item_id]
+            existing_prices.extend(fresh_prices)
+            self.last_prices = existing_prices
+        self.recompute()
+
+    def recompute(self) -> None:
+        if not self.last_prices or not self.last_config:
+            return
+        now = datetime.now(timezone.utc)
+        opps = analyze_flips(
+            prices=self.last_prices,
+            history=self.last_history,
+            config=self.last_config,
+            now=now,
+            fulfilled_orders=self.fulfilled_orders,
+            price_overrides=self.price_overrides,
+        )
+        self.update(
+            server=self.server,
+            last_refresh=now.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            opportunities=opps,
+            prices=self.last_prices,
+            history=self.last_history,
+            now=now,
+            config=self.last_config,
+        )
 
     def set_refresh_callback(self, callback: Callable[[], Any]) -> None:
         self.refresh_callback = callback
@@ -1753,9 +2150,16 @@ class FlipDataStore:
         last_refresh: str,
         opportunities: list[FlipOpportunity],
         prices: Sequence[PriceRecord] | None = None,
+        history: Sequence[HistoryRecord] | None = None,
         now: datetime | None = None,
         config: AppConfig | None = None,
     ) -> None:
+        if prices:
+            self.last_prices = list(prices)
+        if history:
+            self.last_history = list(history)
+        if config:
+            self.last_config = config
         if now is None:
             now = datetime.now(timezone.utc)
         elif now.tzinfo is None:
@@ -1943,6 +2347,26 @@ class FlipDataStore:
 
     def get_data(self) -> dict[str, Any]:
         with self._lock:
+            overrides_list = []
+            for (item_id, city, quality), dt in self.fulfilled_orders.items():
+                overrides_list.append({
+                    "type": "fulfilled",
+                    "item_id": item_id,
+                    "item_name": get_human_name(item_id),
+                    "city": city,
+                    "quality": quality,
+                    "time": dt.strftime("%H:%M:%S UTC"),
+                })
+            for (item_id, city, quality), price in self.price_overrides.items():
+                overrides_list.append({
+                    "type": "override",
+                    "item_id": item_id,
+                    "item_name": get_human_name(item_id),
+                    "city": city,
+                    "quality": quality,
+                    "price": price,
+                })
+
             return {
                 "server": self.server,
                 "last_refresh": self.last_refresh,
@@ -1953,6 +2377,8 @@ class FlipDataStore:
                 "crafting": list(self.crafting),
                 "focus_crafting": list(self.focus_crafting),
                 "recent_prices": list(self.recent_prices),
+                "overrides_count": len(self.fulfilled_orders) + len(self.price_overrides),
+                "overrides": overrides_list,
             }
 
 
@@ -1974,6 +2400,13 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         logger.debug("%s - - [%s] %s", self.address_string(), self.log_date_time_string(), format % args)
 
+    def do_OPTIONS(self) -> None:
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
     def do_HEAD(self) -> None:
         clean_path = self.path.split("?")[0]
         if clean_path in ("/", "/index.html"):
@@ -1981,7 +2414,7 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-        elif clean_path in ("/api/flips", "/api/refresh"):
+        elif clean_path in ("/api/flips", "/api/refresh", "/api/fulfill", "/api/override", "/api/clear_overrides", "/api/refresh_item"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -1999,6 +2432,50 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
         if clean_path == "/api/refresh":
             self.store.trigger_refresh()
             self._send_json(self.store.get_data())
+        elif clean_path == "/api/fulfill":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+                item_id = body.get("item_id", "")
+                city = body.get("city", "Black Market")
+                quality = int(body.get("quality", 1))
+                if item_id:
+                    self.store.mark_fulfilled(item_id, city, quality)
+                self._send_json(self.store.get_data())
+            except Exception as e:
+                logger.error("Error in /api/fulfill: %s", e)
+                self.send_response(500)
+                self.end_headers()
+        elif clean_path == "/api/override":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+                item_id = body.get("item_id", "")
+                city = body.get("city", "Black Market")
+                quality = int(body.get("quality", 1))
+                price = int(body.get("price", 0))
+                if item_id:
+                    self.store.set_price_override(item_id, city, quality, price)
+                self._send_json(self.store.get_data())
+            except Exception as e:
+                logger.error("Error in /api/override: %s", e)
+                self.send_response(500)
+                self.end_headers()
+        elif clean_path == "/api/clear_overrides":
+            self.store.clear_overrides()
+            self._send_json(self.store.get_data())
+        elif clean_path == "/api/refresh_item":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+                item_id = body.get("item_id", "")
+                if item_id:
+                    self.store.refresh_single_item(item_id)
+                self._send_json(self.store.get_data())
+            except Exception as e:
+                logger.error("Error in /api/refresh_item: %s", e)
+                self.send_response(500)
+                self.end_headers()
         else:
             self.send_response(404)
             self.end_headers()
