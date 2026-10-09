@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from albion_flips.advisor import ask_advisor
 from albion_flips.analyzer import analyze_crafting, calculate_deal_score, deduplicate_prices
 from albion_flips.config import AppConfig
 from albion_flips.models import FlipOpportunity, PriceRecord
@@ -249,6 +250,129 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       font-size: 0.78rem;
       color: var(--text-muted);
       margin-right: 4px;
+    }
+
+    /* AI Advisor Styles */
+    .advisor-container {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 520px;
+    }
+    .advisor-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 14px;
+    }
+    .advisor-title-box {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .advisor-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #4f46e5, #9333ea);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      box-shadow: 0 0 15px rgba(99, 102, 241, 0.4);
+    }
+    .advisor-chat-box {
+      flex: 1;
+      max-height: 560px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding-right: 6px;
+    }
+    .chat-bubble {
+      max-width: 88%;
+      padding: 14px 18px;
+      border-radius: 12px;
+      line-height: 1.5;
+      font-size: 0.92rem;
+    }
+    .bubble-user {
+      align-self: flex-end;
+      background: #2563eb;
+      color: #fff;
+      border-bottom-right-radius: 3px;
+    }
+    .bubble-ai {
+      align-self: flex-start;
+      background: #151926;
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      color: #e2e8f0;
+      border-bottom-left-radius: 3px;
+    }
+    .advisor-input-bar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      background: #0f131f;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 6px 8px;
+    }
+    .advisor-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: #fff;
+      padding: 8px 12px;
+      font-size: 0.92rem;
+      outline: none;
+    }
+    .advisor-send-btn {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: white;
+      border: none;
+      padding: 8px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .advisor-send-btn:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+    .advisor-quick-cities {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .city-chip {
+      background: #1e2438;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #cbd5e1;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .city-chip:hover {
+      background: #312e81;
+      color: #e0e7ff;
+      border-color: #6366f1;
     }
 
     table {
@@ -684,6 +808,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </button>
     <button id="tab-crafting" class="tab-btn" onclick="switchTab('crafting')">🔨 Crafting & Refining Profit</button>
     <button id="tab-prices" class="tab-btn" onclick="switchTab('prices')">📡 Live Scanned Prices</button>
+    <button id="tab-advisor" class="tab-btn" style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: #fff; border-color: #6366f1;" onclick="switchTab('advisor')">🧙‍♂️ AI Market Advisor</button>
   </div>
 
   <div class="filter-panel">
@@ -942,6 +1067,61 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <tr><td colspan="7" style="text-align: center; padding: 24px; color: var(--text-muted);">Loading live captured prices...</td></tr>
       </tbody>
     </table>
+  <!-- VIEW 4: AI MARKET ADVISOR -->
+  <div id="view-advisor" style="display: none;">
+    <div class="advisor-container">
+      <div class="advisor-header">
+        <div class="advisor-title-box">
+          <div class="advisor-avatar">🧙‍♂️</div>
+          <div>
+            <h3 style="margin: 0; color: #fff; font-size: 1.15rem; display: flex; align-items: center; gap: 8px;">
+              Albion Tactical AI Market Advisor
+              <span class="badge" style="background: #312e81; color: #a5b4fc; font-size: 0.72rem;">Live Intelligence</span>
+            </h3>
+            <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: var(--text-muted);">
+              Instant tactical advice on what to craft, refine, flip, or transport based on your current city & live prices.
+            </p>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+          <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">Choose Your Current City:</div>
+          <div class="advisor-quick-cities">
+            <button class="city-chip" onclick="askCityAdvisor('Martlock')">📍 Martlock</button>
+            <button class="city-chip" onclick="askCityAdvisor('Fort Sterling')">📍 Fort Sterling</button>
+            <button class="city-chip" onclick="askCityAdvisor('Thetford')">📍 Thetford</button>
+            <button class="city-chip" onclick="askCityAdvisor('Lymhurst')">📍 Lymhurst</button>
+            <button class="city-chip" onclick="askCityAdvisor('Bridgewatch')">📍 Bridgewatch</button>
+            <button class="city-chip" onclick="askCityAdvisor('Caerleon')">📍 Caerleon</button>
+            <button class="city-chip" onclick="askCityAdvisor('Brecilien')">📍 Brecilien</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick prompts -->
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+        <span style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600;">Quick Inquiries:</span>
+        <button class="pill-btn" onclick="sendPrompt('What are the most profitable things to craft right now?')">🔨 Top Crafts</button>
+        <button class="pill-btn" onclick="sendPrompt('I want to refine resources, what gives the best margin?')">✨ Best Refining</button>
+        <button class="pill-btn" onclick="sendPrompt('What are the best safe flips to make silver?')">🚚 Safe Flips</button>
+        <button class="pill-btn" onclick="sendPrompt('What can I transport to Black Market for high profit?')">🏴‍☠️ Black Market Runs</button>
+      </div>
+
+      <!-- Chat history window -->
+      <div id="advisor-chat" class="advisor-chat-box">
+        <div class="chat-bubble bubble-ai">
+          <strong>🧙‍♂️ Advisor:</strong> Welcome, adventurer! Tell me which city you are currently in (or click one of the city pills above), and I will calculate the best crafting recipes, local refining bonuses, and flips to maximize your silver right now!
+        </div>
+      </div>
+
+      <!-- Input box -->
+      <div class="advisor-input-bar">
+        <input type="text" id="advisor-input" class="advisor-input" placeholder="e.g. 'I am in Martlock with 500k silver, what should I craft?' or 'Best flips from Fort Sterling'" onkeydown="if(event.key === 'Enter') submitAdvisorQuery()">
+        <button class="advisor-send-btn" onclick="submitAdvisorQuery()" id="btn-advisor-send">
+          <span>⚡ Ask Advisor</span>
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- PAGINATION CONTROLS -->
@@ -1154,15 +1334,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       document.getElementById('tab-blackmarket').className = 'tab-btn' + (tab === 'blackmarket' ? ' active' : '');
       document.getElementById('tab-crafting').className = 'tab-btn' + (tab === 'crafting' ? ' active' : '');
       document.getElementById('tab-prices').className = 'tab-btn' + (tab === 'prices' ? ' active' : '');
+      const tabAdv = document.getElementById('tab-advisor');
+      if (tabAdv) tabAdv.className = 'tab-btn' + (tab === 'advisor' ? ' active' : '');
 
       document.getElementById('view-flips').style.display = (tab === 'flips') ? 'block' : 'none';
       document.getElementById('view-blackmarket').style.display = (tab === 'blackmarket') ? 'block' : 'none';
       document.getElementById('view-crafting').style.display = (tab === 'crafting') ? 'block' : 'none';
       document.getElementById('view-prices').style.display = (tab === 'prices') ? 'block' : 'none';
+      const viewAdv = document.getElementById('view-advisor');
+      if (viewAdv) viewAdv.style.display = (tab === 'advisor') ? 'block' : 'none';
 
       document.getElementById('quick-flips').style.display = (tab === 'flips') ? 'flex' : 'none';
       document.getElementById('quick-blackmarket').style.display = (tab === 'blackmarket') ? 'flex' : 'none';
       document.getElementById('quick-crafting').style.display = (tab === 'crafting') ? 'flex' : 'none';
+
+      const filterPanel = document.querySelector('.filter-panel');
+      const paginBar = document.querySelector('.pagination-bar');
+      if (filterPanel) filterPanel.style.display = (tab === 'advisor') ? 'none' : 'flex';
+      if (paginBar) paginBar.style.display = (tab === 'advisor') ? 'none' : 'flex';
 
       // Update City Filter label and visibility depending on active tab
       const buyCityLabel = document.getElementById('filter-buy-city-label');
@@ -1183,7 +1372,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }
 
       currentPage = 1;
-      renderCurrentView();
+      if (tab !== 'advisor') {
+        renderCurrentView();
+      }
     }
 
     function prevPage() {
@@ -1643,6 +1834,90 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       current.textContent = `Page ${currentPage} of ${totalPages}`;
       btnPrev.disabled = (currentPage <= 1);
       btnNext.disabled = (currentPage >= totalPages);
+    }
+
+    function formatMarkdown(text) {
+      if (!text) return '';
+      let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+      // Headers
+      html = html.replace(/^#### (.*$)/gim, '<h5 style="margin: 6px 0 2px; color: #a5b4fc; font-size: 0.92rem;">$1</h5>');
+      html = html.replace(/^### (.*$)/gim, '<h4 style="margin: 10px 0 4px; color: var(--gold); font-size: 1rem;">$1</h4>');
+      html = html.replace(/^## (.*$)/gim, '<h3 style="margin: 14px 0 6px; color: #60a5fa; font-size: 1.15rem;">$1</h3>');
+      html = html.replace(/^# (.*$)/gim, '<h2 style="margin: 16px 0 8px; color: var(--gold); font-size: 1.3rem;">$1</h2>');
+
+      // Bold & Italic
+      html = html.replace(/\\*\\*(.*?)\\*\\*/g, '<strong style="color: #fff;">$1</strong>');
+      html = html.replace(/\\*(.*?)\\*/g, '<em style="color: #94a3b8;">$1</em>');
+
+      // Inline code / tags
+      html = html.replace(/`([^`]+)`/g, '<code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; color: #38bdf8; font-family: monospace;">$1</code>');
+
+      // List items
+      html = html.replace(/^\\s*-\\s+(.*$)/gim, '<div style="margin-left: 12px; margin-bottom: 4px;">• $1</div>');
+      html = html.replace(/^\\s*(\\d+)\\.\\s+(.*$)/gim, '<div style="margin-left: 12px; margin-bottom: 4px;"><strong style="color:#60a5fa;">$1.</strong> $2</div>');
+
+      // Line breaks
+      html = html.replace(/\\n\\n/g, '<div style="height: 10px;"></div>');
+      html = html.replace(/\\n/g, '<br>');
+
+      return html;
+    }
+
+    function askCityAdvisor(city) {
+      switchTab('advisor');
+      const input = document.getElementById('advisor-input');
+      if (input) input.value = `I am in ${city}. What should I craft and do?`;
+      submitAdvisorQuery();
+    }
+
+    function sendPrompt(promptText) {
+      switchTab('advisor');
+      const input = document.getElementById('advisor-input');
+      if (input) input.value = promptText;
+      submitAdvisorQuery();
+    }
+
+    async function submitAdvisorQuery() {
+      const input = document.getElementById('advisor-input');
+      const sendBtn = document.getElementById('btn-advisor-send');
+      const chatBox = document.getElementById('advisor-chat');
+      const query = input.value.trim();
+      if (!query) return;
+
+      // Add user message
+      const userBubble = document.createElement('div');
+      userBubble.className = 'chat-bubble bubble-user';
+      userBubble.textContent = query;
+      chatBox.appendChild(userBubble);
+      input.value = '';
+
+      // Add loading AI bubble
+      const aiBubble = document.createElement('div');
+      aiBubble.className = 'chat-bubble bubble-ai';
+      aiBubble.innerHTML = '<em>🧙‍♂️ Analyzing live market prices, refining bonuses, and flip routes...</em>';
+      chatBox.appendChild(aiBubble);
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      sendBtn.disabled = true;
+      try {
+        const res = await fetch('/api/advisor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: query })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        aiBubble.innerHTML = formatMarkdown(data.response || 'No advice generated.');
+      } catch (err) {
+        aiBubble.innerHTML = `<span style="color:#ef4444;">⚠️ Could not get advice: ${err.message}</span>`;
+      } finally {
+        sendBtn.disabled = false;
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }
     }
 
     function sortFlips(key, isNum = false) {
@@ -2522,7 +2797,7 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-        elif clean_path in ("/api/flips", "/api/refresh", "/api/fulfill", "/api/override", "/api/clear_overrides", "/api/refresh_item"):
+        elif clean_path in ("/api/flips", "/api/refresh", "/api/fulfill", "/api/override", "/api/clear_overrides", "/api/refresh_item", "/api/advisor"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -2584,6 +2859,19 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
                 logger.error("Error in /api/refresh_item: %s", e)
                 self.send_response(500)
                 self.end_headers()
+        elif clean_path == "/api/advisor":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+                query = body.get("query", "")
+                api_key = body.get("api_key", None)
+                data = self.store.get_data()
+                reply = ask_advisor(query=query, store_data=data, api_key=api_key)
+                self._send_json({"response": reply})
+            except Exception as e:
+                logger.error("Error in /api/advisor: %s", e)
+                self.send_response(500)
+                self.end_headers()
         else:
             self.send_response(404)
             self.end_headers()
@@ -2622,6 +2910,15 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/refresh":
             self.store.trigger_refresh()
             self._send_json(self.store.get_data())
+        elif clean_path == "/api/advisor":
+            query_str = ""
+            if "?" in self.path:
+                from urllib.parse import parse_qs, urlparse
+                parsed = parse_qs(urlparse(self.path).query)
+                query_str = parsed.get("query", [""])[0]
+            data = self.store.get_data()
+            reply = ask_advisor(query=query_str, store_data=data)
+            self._send_json({"response": reply})
         else:
             self.send_response(404)
             self.end_headers()
