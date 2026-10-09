@@ -9,13 +9,33 @@ if [ ! -d "$PROJECT_DIR" ]; then
     PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 fi
 
-# If server is already running, just open browser
+# 1. Check & Launch Albion Data Client (Live Packet Sniffer) if available and not running
+if ! pgrep -f "albiondata-client" >/dev/null 2>&1; then
+    CLIENT_BIN=""
+    if [ -f "$PROJECT_DIR/albiondata-client/albiondata-client-executable" ]; then
+        CLIENT_BIN="$PROJECT_DIR/albiondata-client/albiondata-client-executable"
+    elif [ -f "$PROJECT_DIR/albiondata-client-executable" ]; then
+        CLIENT_BIN="$PROJECT_DIR/albiondata-client-executable"
+    fi
+
+    if [ -n "$CLIENT_BIN" ]; then
+        CLIENT_DIR="$(dirname "$CLIENT_BIN")"
+        osascript << APPLESCRIPT
+tell application "Terminal"
+    activate
+    do script "cd \"$CLIENT_DIR\" && clear && echo '==========================================================' && echo ' ⚔️  Albion Data Client (Live Market Sniffer)' && echo ' Please enter your Mac password below to permit network' && echo ' packet sniffing (/dev/bpf) for Albion Online:' && echo '==========================================================' && sudo ./albiondata-client-executable"
+end tell
+APPLESCRIPT
+    fi
+fi
+
+# 2. Check if Albion Market Pulse server is already running
 if lsof -i :8765 >/dev/null 2>&1; then
     open "http://localhost:8765"
     exit 0
 fi
 
-# Launch in Terminal (ensures proper macOS permissions and shows live scan logs)
+# 3. Launch Albion Market Pulse Dashboard in Terminal
 osascript << APPLESCRIPT
 tell application "Terminal"
     activate
@@ -23,7 +43,7 @@ tell application "Terminal"
 end tell
 APPLESCRIPT
 
-# Wait for server to bind then open browser
+# 4. Wait for server to bind then open browser
 for i in {1..20}; do
     if lsof -i :8765 >/dev/null 2>&1; then
         break

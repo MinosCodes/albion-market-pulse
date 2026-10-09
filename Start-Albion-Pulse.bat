@@ -7,7 +7,30 @@ echo    ⚔️ Albion Market Pulse - Starting Up...
 echo ======================================================
 echo.
 
-:: 1. If server is already running, just open the browser
+:: 1. Check for Albion Data Client (packet sniffer for ingesting live prices)
+set CLIENT_EXE=
+if exist "albiondata-client\albiondata-client.exe" (
+    set CLIENT_EXE=albiondata-client\albiondata-client.exe
+) else if exist "albiondata-client.exe" (
+    set CLIENT_EXE=albiondata-client.exe
+)
+
+if not "%CLIENT_EXE%"=="" (
+    tasklist /fi "imagename eq albiondata-client.exe" 2>nul | findstr /i "albiondata-client.exe" >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo [INFO] Starting Albion Data Client for live price capture...
+        start "Albion Data Client (Live Ingest)" "%CLIENT_EXE%"
+    ) else (
+        echo [INFO] Albion Data Client is already running.
+    )
+) else (
+    echo [NOTE] Albion Data Client not found in folder.
+    echo If you want your in-game market scans to feed the community database,
+    echo download albiondata-client from: https://github.com/ao-data/albiondata-client/releases
+    echo.
+)
+
+:: 2. If server is already running, just open the browser
 netstat -ano 2>nul | findstr /C:":8765" | findstr /C:"LISTENING" >nul 2>&1
 if %errorlevel% equ 0 (
     echo [INFO] Server is already running on port 8765. Opening browser...
@@ -16,7 +39,7 @@ if %errorlevel% equ 0 (
     exit /b 0
 )
 
-:: 2. Check for config.json
+:: 3. Check for config.json
 if not exist "config.json" (
     if exist "config.example.json" (
         echo [INFO] Creating config.json from template...
@@ -24,7 +47,7 @@ if not exist "config.json" (
     )
 )
 
-:: 3. Detect Python command
+:: 4. Detect Python command
 set PYTHON_CMD=
 where python >nul 2>&1
 if %errorlevel% equ 0 (
@@ -50,7 +73,7 @@ if "%PYTHON_CMD%"=="" (
     exit /b 1
 )
 
-:: 4. Setup virtual environment if missing
+:: 5. Setup virtual environment if missing
 if not exist ".venv\Scripts\python.exe" (
     echo [INFO] Setting up Python virtual environment...
     %PYTHON_CMD% -m venv .venv
@@ -66,7 +89,7 @@ if not exist ".venv\Scripts\python.exe" (
     call .venv\Scripts\activate.bat
 )
 
-:: 5. Open browser in background after short delay
+:: 6. Open browser in background after short delay
 start "" cmd /c "timeout /t 2 /nobreak >nul && start http://localhost:8765"
 
 echo.
@@ -76,7 +99,7 @@ echo  Leave this window open while playing Albion Online!
 echo ======================================================
 echo.
 
-:: 6. Run live watch & web server
+:: 7. Run live watch & web server
 ".venv\Scripts\python.exe" -m albion_flips.cli --watch --web
 
 pause
