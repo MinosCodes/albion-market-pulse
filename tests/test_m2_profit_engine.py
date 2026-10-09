@@ -573,4 +573,85 @@ def test_price_override_recalculates_profit() -> None:
     assert flips[0].sell_price == 20000
 
 
+def test_martlock_cape_crafting() -> None:
+    """Verifies that Martlock and faction cape crafting recipes are correctly analyzed."""
+    cfg = get_test_config()
+    prices = [
+        # Base Cape T4
+        PriceRecord(
+            item_id="T4_CAPE",
+            city="Martlock",
+            quality=1,
+            sell_price_min=10000,
+            sell_price_min_date="2026-10-09T08:00:00",
+            sell_price_max=12000,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=8000,
+            buy_price_max_date="",
+        ),
+        # Martlock Crest T4
+        PriceRecord(
+            item_id="T4_CAPEITEM_FW_MARTLOCK_BP",
+            city="Martlock",
+            quality=1,
+            sell_price_min=15000,
+            sell_price_min_date="2026-10-09T08:00:00",
+            sell_price_max=16000,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=12000,
+            buy_price_max_date="",
+        ),
+        # Rockheart (Highland token)
+        PriceRecord(
+            item_id="T1_FACTION_HIGHLAND_TOKEN_1",
+            city="Martlock",
+            quality=1,
+            sell_price_min=4000,
+            sell_price_min_date="2026-10-09T08:00:00",
+            sell_price_max=5000,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=3000,
+            buy_price_max_date="",
+        ),
+        # Finished Martlock Cape T4 selling in Caerleon
+        PriceRecord(
+            item_id="T4_CAPEITEM_FW_MARTLOCK",
+            city="Caerleon",
+            quality=1,
+            sell_price_min=60000,
+            sell_price_min_date="2026-10-09T08:00:00",
+            sell_price_max=65000,
+            sell_price_max_date="",
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=45000,
+            buy_price_max_date="",
+        ),
+    ]
+
+    crafts = analyze_crafting(prices, cfg, focus=False)
+    martlock_crafts = [c for c in crafts if c.item_id == "T4_CAPEITEM_FW_MARTLOCK"]
+    assert len(martlock_crafts) == 1
+
+    op = martlock_crafts[0]
+    assert op.craft_city == "Martlock"
+    assert op.sell_city == "Caerleon"
+    assert op.craft_type == "Faction Capes"
+    # Material cost: 10000 (cape) + 15000 (crest) + 4000 (1x rockheart) = 29000
+    assert op.material_cost == 29000.0
+    assert op.effective_cost == 29000.0
+    assert op.sell_price == 60000
+    assert op.profit_per_item > 0
+    assert op.resource_return_rate == 0.0
+    assert "Rockheart" in op.ingredients_desc
+    assert "Martlock Crest" in op.ingredients_desc
+
+
+
 

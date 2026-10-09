@@ -579,11 +579,10 @@ def analyze_crafting(
 
     # 2. Equipment Crafting (Bags, Capes, Staffs, Weapons, Armors)
     eq_rrr = 0.435 if focus else 0.152
-    qty_by_tier = {3: 2, 4: 4, 5: 8, 6: 16}
 
     for eq_type, label in (("BAG", "Bag Crafting"), ("CAPE", "Cape Crafting")):
-        for tier in (3, 4, 5, 6):
-            for enchant in (0, 1, 2, 3):
+        for tier in (3, 4, 5, 6, 7, 8):
+            for enchant in (0, 1, 2, 3, 4):
                 if tier == 3 and enchant > 0:
                     continue
                 suffix = f"@{enchant}" if enchant > 0 else ""
@@ -597,7 +596,11 @@ def analyze_crafting(
                 if cloth_p <= 0 or leather_p <= 0:
                     continue
 
-                q = qty_by_tier[tier]
+                if eq_type == "BAG":
+                    q = 4 if tier == 3 else 8
+                else:
+                    q = 2 if tier == 3 else 4
+
                 mat_cost = (q * cloth_p) + (q * leather_p)
                 effective_cost = mat_cost * (1.0 - eq_rrr)
 
@@ -633,6 +636,85 @@ def analyze_crafting(
                         margin_pct=float(margin),
                         resource_return_rate=eq_rrr,
                         ingredients_desc=f"{q}x Cloth + {q}x Leather",
+                        city_bonus=False,
+                        focus=focus,
+                        tier=tier,
+                        enchant=enchant,
+                    )
+                )
+
+    # 2b. Faction & Special Capes (Martlock, Bridgewatch, Fort Sterling, etc.)
+    faction_capes = [
+        ("CAPEITEM_FW_MARTLOCK", "Martlock Cape", "T1_FACTION_HIGHLAND_TOKEN_1", "Rockheart", "Martlock"),
+        ("CAPEITEM_FW_BRIDGEWATCH", "Bridgewatch Cape", "T1_FACTION_STEPPE_TOKEN_1", "Beastheart", "Bridgewatch"),
+        ("CAPEITEM_FW_FORTSTERLING", "Fort Sterling Cape", "T1_FACTION_MOUNTAIN_TOKEN_1", "Mountainheart", "Fort Sterling"),
+        ("CAPEITEM_FW_LYMHURST", "Lymhurst Cape", "T1_FACTION_FOREST_TOKEN_1", "Treeheart", "Lymhurst"),
+        ("CAPEITEM_FW_THETFORD", "Thetford Cape", "T1_FACTION_SWAMP_TOKEN_1", "Vineheart", "Thetford"),
+        ("CAPEITEM_FW_CAERLEON", "Caerleon Cape", "T1_FACTION_CAERLEON_TOKEN_1", "Shadowheart", "Caerleon"),
+        ("CAPEITEM_FW_BRECILIEN", "Brecilien Cape", "QUESTITEM_TOKEN_MISTS", "Faerie Fire", "Brecilien"),
+        ("CAPEITEM_HERETIC", "Heretic Cape", "T1_FACTION_FOREST_TOKEN_1", "Treeheart", "Toolmaker"),
+        ("CAPEITEM_UNDEAD", "Undead Cape", "T1_FACTION_MOUNTAIN_TOKEN_1", "Mountainheart", "Toolmaker"),
+        ("CAPEITEM_KEEPER", "Keeper Cape", "T1_FACTION_HIGHLAND_TOKEN_1", "Rockheart", "Toolmaker"),
+        ("CAPEITEM_MORGANA", "Morgana Cape", "T1_FACTION_SWAMP_TOKEN_1", "Vineheart", "Toolmaker"),
+        ("CAPEITEM_DEMON", "Demon Cape", "T1_FACTION_STEPPE_TOKEN_1", "Beastheart", "Toolmaker"),
+        ("CAPEITEM_AVALON", "Avalonian Cape", "QUESTITEM_TOKEN_AVALON", "Avalonian Energy", "Toolmaker"),
+        ("CAPEITEM_SMUGGLER", "Smuggler Cape", "T1_FACTION_CAERLEON_TOKEN_1", "Shadowheart", "Toolmaker"),
+    ]
+    heart_qty_map = {4: 1, 5: 1, 6: 3, 7: 5, 8: 10}
+
+    for cape_tag, cape_label, token_id, token_name, default_city in faction_capes:
+        for tier in (4, 5, 6, 7, 8):
+            for enchant in (0, 1, 2, 3, 4):
+                suffix = f"@{enchant}" if enchant > 0 else ""
+                item_id = f"T{tier}_{cape_tag}{suffix}"
+                base_cape_id = f"T{tier}_CAPE{suffix}"
+                crest_id = f"T{tier}_{cape_tag}_BP"
+                token_qty = heart_qty_map[tier] * 15 if cape_tag == "CAPEITEM_AVALON" else heart_qty_map[tier]
+
+                cape_p, cape_city = cheapest_sell.get(base_cape_id, (0, ""))
+                crest_p, crest_city = cheapest_sell.get(crest_id, (0, ""))
+                token_p, token_city = cheapest_sell.get(token_id, (0, ""))
+
+                if cape_p <= 0 or crest_p <= 0 or token_p <= 0:
+                    continue
+
+                mat_cost = cape_p + crest_p + (token_qty * token_p)
+                effective_cost = float(mat_cost)
+
+                if item_id not in highest_sell:
+                    continue
+                sell_price, sell_city = highest_sell[item_id]
+                if sell_price <= 0:
+                    continue
+
+                profit = calculate_crafting_profit(
+                    sell_price=sell_price,
+                    effective_material_cost=effective_cost,
+                    tax_rate=tax_rate,
+                    setup_fee_rate=setup_fee_rate,
+                )
+                margin = calculate_margin(profit, int(round(effective_cost)))
+
+                name = item_names.get(item_id) if item_names else None
+                if not name:
+                    name = item_id.replace("_", " ").title()
+
+                craft_city = default_city if default_city != "Toolmaker" else (cape_city or "Any Royal City")
+
+                opportunities.append(
+                    CraftingOpportunity(
+                        item_id=item_id,
+                        item_name=name,
+                        craft_type="Faction Capes",
+                        craft_city=craft_city,
+                        sell_city=sell_city,
+                        material_cost=float(mat_cost),
+                        effective_cost=float(effective_cost),
+                        sell_price=sell_price,
+                        profit_per_item=float(profit),
+                        margin_pct=float(margin),
+                        resource_return_rate=0.0,
+                        ingredients_desc=f"1x Base Cape T{tier}{suffix} + 1x {cape_label.split()[0]} Crest + {token_qty}x {token_name}",
                         city_bonus=False,
                         focus=focus,
                         tier=tier,

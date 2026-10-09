@@ -725,6 +725,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <button class="pill-btn" onclick="setCraftFilter('Stone Refining', this)">🧱 Stone Blocks</button>
       <button class="pill-btn" onclick="setCraftFilter('Bag Crafting', this)">🎒 Bags</button>
       <button class="pill-btn" onclick="setCraftFilter('Cape Crafting', this)">🧣 Capes</button>
+      <button class="pill-btn" onclick="setCraftFilter('Faction Capes', this)">🚩 Faction Capes</button>
       <button class="pill-btn" onclick="setCraftFilter('Weapon', this)">⚔️ Weapons</button>
       <button class="pill-btn" onclick="setCraftFilter('Armor', this)">🛡️ Armors</button>
       <button id="btn-focus-toggle" class="pill-btn" style="margin-left: auto; border-color: var(--purple); color: #d8b4fe;" onclick="toggleFocusMode()">✨ Focus: OFF</button>
@@ -1240,7 +1241,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (fSellCity !== 'all' && item.sell_city !== fSellCity) return false;
 
         // Category filter
-        if (craftCategoryFilter !== 'all' && item.craft_type !== craftCategoryFilter) return false;
+        if (craftCategoryFilter !== 'all') {
+          if (craftCategoryFilter === 'Cape Crafting') {
+            if (item.craft_type !== 'Cape Crafting' && item.craft_type !== 'Faction Capes') return false;
+          } else if (item.craft_type !== craftCategoryFilter) {
+            return false;
+          }
+        }
 
       } else {
         if (fBuyCity !== 'all' && item.city !== fBuyCity) return false;
