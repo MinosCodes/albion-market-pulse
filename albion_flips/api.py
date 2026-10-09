@@ -15,7 +15,7 @@ from albion_flips.models import HistoryRecord, PriceRecord
 logger = logging.getLogger(__name__)
 
 USER_AGENT = "albion-market-analyzer/0.1"
-DEFAULT_BATCH_SIZE = 150
+DEFAULT_BATCH_SIZE = 200
 MAX_URL_LENGTH = 3800
 
 
