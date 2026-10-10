@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from socketserver import ThreadingMixIn
 from typing import Any, Callable, Sequence
 
 from albion_flips.analyzer import analyze_crafting, analyze_enchanting, analyze_flips, calculate_deal_score, deduplicate_prices
@@ -3822,17 +3823,70 @@ class FlipDataStore:
                 price_overrides=self.price_overrides,
                 item_names=ITEM_NAMES,
             )
-            for e in enchant_ops[:1000]:
-                is_e_sniffer = False
+            # Prioritization & Complete Coverage for Enchanting:
+            # 1. Any opportunity where the gear or mat was scanned by the sniffer is prioritized.
+            # 2. Every slot type (Bags, Capes, Weapons, Armor, etc.) is preserved and not crowded out.
+            # 3. Limit expanded to 3,500 items so all relevant gear is included.
+
+            opp_sniffer_info: list[tuple[EnchantingOpportunity, bool, int | None, bool]] = []
+            for e in enchant_ops:
+                is_gear_sniffer = False
+                is_mat_sniffer = False
                 e_sniffer_age_secs = None
                 for scan_key, scan_time in self.sniffer_scans.items():
-                    if (scan_key[0] in (e.base_item_id, e.target_item_id) or "RUNE" in scan_key[0] or "SOUL" in scan_key[0] or "RELIC" in scan_key[0]) and (scan_key[1] == e.city or scan_key[1] == e.sell_city):
-                        age_s = max(0.0, (now - scan_time).total_seconds())
-                        if age_s < 600:
-                            is_e_sniffer = True
+                    scanned_item = scan_key[0]
+                    scanned_city = scan_key[1]
+                    age_s = max(0.0, (now - scan_time).total_seconds())
+                    if age_s < 900 and (scanned_city == e.city or scanned_city == e.sell_city):
+                        if scanned_item in (e.base_item_id, e.target_item_id):
+                            is_gear_sniffer = True
+                            if e_sniffer_age_secs is None or age_s < e_sniffer_age_secs:
+                                e_sniffer_age_secs = round(age_s)
+                        elif ("RUNE" in scanned_item or "SOUL" in scanned_item or "RELIC" in scanned_item) and (scanned_item in e.enchant_mat_id):
+                            is_mat_sniffer = True
                             if e_sniffer_age_secs is None or age_s < e_sniffer_age_secs:
                                 e_sniffer_age_secs = round(age_s)
 
+                is_any_sniffer = is_gear_sniffer or is_mat_sniffer
+                opp_sniffer_info.append((e, is_any_sniffer, e_sniffer_age_secs, is_gear_sniffer))
+
+            selected_entries: list[tuple[EnchantingOpportunity, bool, int | None]] = []
+            seen_selected_keys: set[tuple[str, str, str, str]] = set()
+
+            def add_entry(entry: tuple[EnchantingOpportunity, bool, int | None, bool]) -> None:
+                op, snif, age, _ = entry
+                k = (op.base_item_id, op.target_item_id, op.city, op.sell_city)
+                if k not in seen_selected_keys:
+                    seen_selected_keys.add(k)
+                    selected_entries.append((op, snif, age))
+
+            # 1. Gear directly sniffed (always top)
+            for entry in opp_sniffer_info:
+                if entry[3]:  # is_gear_sniffer
+                    add_entry(entry)
+
+            # 2. Material sniffed
+            for entry in opp_sniffer_info:
+                if entry[1]:  # is_any_sniffer
+                    add_entry(entry)
+
+            # 3. All Bags, Capes, Off-hands (ensure 100% coverage of accessories)
+            for entry in opp_sniffer_info:
+                if entry[0].item_type in ("Bag", "Cape", "Off-hand"):
+                    add_entry(entry)
+
+            # 4. Profitable opportunities
+            for entry in opp_sniffer_info:
+                if entry[0].is_profitable and len(selected_entries) < 3000:
+                    add_entry(entry)
+
+            # 5. Remaining opportunities up to 3,500
+            for entry in opp_sniffer_info:
+                if len(selected_entries) >= 3500:
+                    break
+                add_entry(entry)
+
+            for e, is_e_sniffer, e_sniffer_age_secs in selected_entries:
                 serialized_enchanting.append({
                     "base_item_id": e.base_item_id,
                     "target_item_id": e.target_item_id,
@@ -3926,8 +3980,9 @@ class FlipDataStore:
             }
 
 
-class DualStackHTTPServer(HTTPServer):
-    """Dual stack server listening on IPv6 and IPv4 simultaneously."""
+class DualStackHTTPServer(ThreadingMixIn, HTTPServer):
+    """Dual stack multithreaded server listening on IPv6 and IPv4 simultaneously."""
+    daemon_threads = True
     address_family = socket.AF_INET6
 
     def server_bind(self) -> None:
@@ -3973,7 +4028,18 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         clean_path = self.path.split("?")[0]
-        if clean_path.startswith("/api/ingest") or clean_path.endswith("marketorders.ingest") or clean_path == "/marketorders.ingest":
+        if "markethistories.ingest" in clean_path:
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+                histories = body.get("Histories", []) if isinstance(body, dict) else []
+                res = self.store.ingest_market_histories(histories)
+                self._send_json({"status": "ok", "ingested_histories": len(histories), "details": res})
+            except Exception as e:
+                logger.error("Error in /api/ingest histories: %s", e)
+                self.send_response(500)
+                self.end_headers()
+        elif "marketorders.ingest" in clean_path or clean_path.startswith("/api/ingest"):
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
@@ -3988,17 +4054,6 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"status": "ok", "ingested": len(orders), "details": res})
             except Exception as e:
                 logger.error("Error in /api/ingest: %s", e)
-                self.send_response(500)
-                self.end_headers()
-        elif clean_path.endswith("markethistories.ingest") or clean_path == "/markethistories.ingest":
-            try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
-                histories = body.get("Histories", []) if isinstance(body, dict) else []
-                res = self.store.ingest_market_histories(histories)
-                self._send_json({"status": "ok", "ingested_histories": len(histories), "details": res})
-            except Exception as e:
-                logger.error("Error in /api/ingest histories: %s", e)
                 self.send_response(500)
                 self.end_headers()
         elif clean_path == "/api/refresh":

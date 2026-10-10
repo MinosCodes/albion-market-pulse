@@ -1024,8 +1024,10 @@ def analyze_enchanting(
         if mat_id in DEFAULT_RUNE_PRICES:
             price = p.sell_price_min if p.sell_price_min > 0 else (p.buy_price_max if p.buy_price_max > 0 else 0)
             if price > 0:
-                city_mats[(mat_id, p.city)] = price
-                mat_dates[(mat_id, p.city)] = p.sell_price_min_date or p.buy_price_max_date
+                curr_p = city_mats.get((mat_id, p.city), 0)
+                if curr_p == 0 or price < curr_p:
+                    city_mats[(mat_id, p.city)] = price
+                    mat_dates[(mat_id, p.city)] = p.sell_price_min_date or p.buy_price_max_date
                 if mat_id not in cheapest_mats or price < cheapest_mats[mat_id][0]:
                     cheapest_mats[mat_id] = (price, p.city)
 
@@ -1076,13 +1078,19 @@ def analyze_enchanting(
     for p in clean_prices:
         all_item_ids.add(p.item_id)
         if p.sell_price_min > 0:
-            city_item_sell[(p.item_id, p.city)] = p.sell_price_min
-            item_dates[(p.item_id, p.city)] = p.sell_price_min_date
+            curr_sell = city_item_sell.get((p.item_id, p.city), 0)
+            if curr_sell == 0 or p.sell_price_min < curr_sell:
+                city_item_sell[(p.item_id, p.city)] = p.sell_price_min
+                item_dates[(p.item_id, p.city)] = p.sell_price_min_date
         if p.buy_price_max > 0:
-            city_item_buy[(p.item_id, p.city)] = p.buy_price_max
+            curr_buy = city_item_buy.get((p.item_id, p.city), 0)
+            if p.buy_price_max > curr_buy:
+                city_item_buy[(p.item_id, p.city)] = p.buy_price_max
         if p.city == "Black Market" and p.buy_price_max > 0:
-            bm_buy[p.item_id] = p.buy_price_max
-            bm_dates[p.item_id] = p.buy_price_max_date
+            curr_bm = bm_buy.get(p.item_id, 0)
+            if p.buy_price_max > curr_bm:
+                bm_buy[p.item_id] = p.buy_price_max
+                bm_dates[p.item_id] = p.buy_price_max_date
 
     # 3. Analyze all enchantable gear
     opportunities: list[EnchantingOpportunity] = []
