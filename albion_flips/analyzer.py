@@ -1124,6 +1124,11 @@ def analyze_enchanting(
                 bm_buy[p.item_id] = p.buy_price_max
                 bm_dates[p.item_id] = p.buy_price_max_date
 
+    item_cities_sell: dict[str, list[tuple[str, int]]] = {}
+    for (it_id, c_name), b_cost in city_item_sell.items():
+        if b_cost > 0:
+            item_cities_sell.setdefault(it_id, []).append((c_name, b_cost))
+
     # 3. Analyze all enchantable gear
     opportunities: list[EnchantingOpportunity] = []
     seen_opp_keys: set[tuple[str, str, str, str]] = set()
@@ -1154,9 +1159,7 @@ def analyze_enchanting(
             steps.append((3, [f"T{tier}_RELIC"]))
 
         # For every city where raw_id can be bought:
-        for (item_id, city), buy_cost in city_item_sell.items():
-            if item_id != raw_id or buy_cost <= 0:
-                continue
+        for city, buy_cost in item_cities_sell.get(raw_id, []):
 
             for to_enchant, mat_ids in steps:
                 target_id = f"{base_stem}@{to_enchant}"

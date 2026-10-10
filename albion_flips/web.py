@@ -3479,6 +3479,9 @@ class FlipDataStore:
         self.sniffer_last_time: datetime | None = None
         self.sniffer_last_timestamp: float = 0.0
         self.live_sniffer_events: list[dict[str, Any]] = []
+        self._recompute_timer: threading.Timer | None = None
+        self._recompute_lock = threading.Lock()
+        self._is_recomputing: bool = False
         self._load_overrides()
 
     def _load_overrides(self) -> None:
@@ -3558,7 +3561,32 @@ class FlipDataStore:
             self.last_prices = existing_prices
         self.recompute()
 
-    def ingest_market_orders(self, orders: list[dict[str, Any]]) -> dict[str, Any]:
+    def schedule_recompute(self, delay: float = 0.25) -> None:
+        """Schedules debounced background recomputation.
+
+        Coalesces high-frequency packet bursts from the in-game market into a single
+        smooth recalculation without blocking HTTP ingest responses.
+        """
+        with self._recompute_lock:
+            if self._recompute_timer is not None:
+                self._recompute_timer.cancel()
+            self._recompute_timer = threading.Timer(delay, self._run_background_recompute)
+            self._recompute_timer.daemon = True
+            self._recompute_timer.start()
+
+    def _run_background_recompute(self) -> None:
+        if self._is_recomputing:
+            self.schedule_recompute(delay=0.25)
+            return
+        self._is_recomputing = True
+        try:
+            self.recompute()
+        except Exception as e:
+            logger.error("Error in background recompute: %s", e)
+        finally:
+            self._is_recomputing = False
+
+    def ingest_market_orders(self, orders: list[dict[str, Any]], sync: bool = True) -> dict[str, Any]:
         """Ingests live market orders directly from local albiondata-client sniffer in 0s."""
         if not orders:
             return {"orders_processed": 0}
@@ -3709,7 +3737,11 @@ class FlipDataStore:
                 }
                 self.live_sniffer_events = [event] + [ev for ev in self.live_sniffer_events if not (ev["item_id"] == item_id and ev["city"] == city)][:9]
 
-        self.recompute()
+        if sync:
+            self.recompute()
+        else:
+            self.schedule_recompute(delay=0.25)
+
         logger.info("⚡ Ingested %d live market orders for %s from local sniffer", len(orders), last_city)
         return {
             "orders_processed": len(orders),
@@ -3717,7 +3749,7 @@ class FlipDataStore:
             "cities": city_counts,
         }
 
-    def ingest_market_histories(self, histories: list[dict[str, Any]]) -> dict[str, Any]:
+    def ingest_market_histories(self, histories: list[dict[str, Any]], sync: bool = True) -> dict[str, Any]:
         """Ingests live market sales history stats directly from sniffer in 0s."""
         if not histories:
             return {"histories_processed": 0}
@@ -3791,7 +3823,11 @@ class FlipDataStore:
                 }
                 self.live_sniffer_events = [event] + [ev for ev in self.live_sniffer_events if not (ev["item_id"] == item_id and ev["city"] == city)][:9]
 
-        self.recompute()
+        if sync:
+            self.recompute()
+        else:
+            self.schedule_recompute(delay=0.25)
+
         return {"histories_processed": len(histories)}
 
     def recompute(self) -> None:
@@ -4317,7 +4353,7 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
                     histories = body.get("Histories") or body.get("histories") or []
                     if not histories and "ItemTypeId" in body and "ItemCount" in body:
                         histories = [body]
-                res = self.store.ingest_market_histories(histories)
+                res = self.store.ingest_market_histories(histories, sync=False)
                 self._send_json({"status": "ok", "ingested_histories": len(histories), "details": res})
             except Exception as e:
                 logger.error("Error in /api/ingest histories: %s", e)
@@ -4332,7 +4368,7 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
                     orders = body.get("Orders") or body.get("orders") or []
                     if not orders and "ItemTypeId" in body:
                         orders = [body]
-                res = self.store.ingest_market_orders(orders)
+                res = self.store.ingest_market_orders(orders, sync=False)
                 self._send_json({"status": "ok", "ingested": len(orders), "details": res})
             except Exception as e:
                 logger.error("Error in /api/ingest: %s", e)
