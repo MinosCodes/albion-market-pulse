@@ -145,5 +145,8 @@ class EnchantingOpportunity:
     data_age_minutes: float = 0.0
     is_live_sniffer: bool = False
     sniffer_age_seconds: int | None = None
+    target_daily_volume: float | None = None
+    target_history_missing: bool = True
+    liquidity_status: str = "untracked"
 
 

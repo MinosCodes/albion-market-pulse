@@ -985,7 +985,7 @@ def is_enchantable_item(item_id: str) -> bool:
     clean = item_id.split("@")[0].upper()
     if not (clean.startswith("T4_") or clean.startswith("T5_") or clean.startswith("T6_") or clean.startswith("T7_") or clean.startswith("T8_")):
         return False
-    if any(m in clean for m in ("_RUNE", "_SOUL", "_RELIC", "_SHARD", "_POTION", "_MEAL", "_FISH", "_MOUNT", "_TOKEN", "_QUESTITEM", "PLANKS", "STONEBLOCK", "METALBAR", "CLOTH", "LEATHER", "WOOD", "ROCK", "ORE", "FIBER", "HIDE")):
+    if any(m in clean for m in ("_RUNE", "_SOUL", "_RELIC", "_SHARD", "_POTION", "_MEAL", "_FISH", "_MOUNT", "_TOKEN", "_QUESTITEM")):
         return False
     return any(slot in clean for slot in ("_BAG", "_CAPE", "_MAIN_", "_2H_", "_ARMOR_", "_HEAD_", "_SHOES_", "_OFF_"))
 
@@ -993,6 +993,7 @@ def is_enchantable_item(item_id: str) -> bool:
 def analyze_enchanting(
     prices: Sequence[PriceRecord],
     config: AppConfig,
+    history: Sequence[HistoryRecord] | Mapping[tuple[str, str, int], HistoryRecord] | None = None,
     now: datetime | None = None,
     fulfilled_orders: dict[tuple[str, str, int], datetime] | None = None,
     price_overrides: dict[tuple[str, str, int], int] | None = None,
@@ -1013,6 +1014,37 @@ def analyze_enchanting(
     )
     tax_rate = config.tax_rate_premium if config.premium else config.tax_rate_standard
     setup_fee_rate = config.setup_fee_rate
+
+    # Build fast O(1) history index
+    history_map: Mapping[tuple[str, str, int], HistoryRecord] = {}
+    if history:
+        if isinstance(history, Mapping):
+            history_map = history
+        else:
+            history_map = {(h.item_id, h.location, h.quality): h for h in history}
+
+    def get_target_volume_info(t_id: str, dest_city: str) -> tuple[float | None, bool, str]:
+        if not history_map:
+            return None, True, "untracked"
+
+        vol = compute_daily_volume(history_map, t_id, dest_city, quality=1, volume_days=config.volume_days)
+        if vol is None or vol == 0:
+            for q in (2, 3):
+                q_vol = compute_daily_volume(history_map, t_id, dest_city, quality=q, volume_days=config.volume_days)
+                if q_vol is not None and q_vol > 0:
+                    vol = (vol or 0.0) + q_vol
+                    break
+
+        if vol is None:
+            return None, True, "untracked"
+        elif vol >= 20.0:
+            return vol, False, "high"
+        elif vol >= 5.0:
+            return vol, False, "active"
+        elif vol >= 1.0:
+            return vol, False, "slow"
+        else:
+            return vol, False, "dead"
 
     # 1. Harvest live Rune, Soul, Relic prices per city and global lowest
     city_mats: dict[tuple[str, str], int] = {}
@@ -1165,6 +1197,7 @@ def analyze_enchanting(
                                 if parsed_dt:
                                     age_min = max(0.0, (now - parsed_dt).total_seconds() / 60.0)
 
+                            t_vol, t_missing, t_liq = get_target_volume_info(target_id, city)
                             opportunities.append(EnchantingOpportunity(
                                 base_item_id=raw_id,
                                 target_item_id=target_id,
@@ -1190,6 +1223,9 @@ def analyze_enchanting(
                                 mass_profit=profit * mass_batch_size,
                                 item_type=slot_type,
                                 data_age_minutes=age_min,
+                                target_daily_volume=t_vol,
+                                target_history_missing=t_missing,
+                                liquidity_status=t_liq,
                             ))
 
                 # 2. Black Market Buy Order (instant sell)
@@ -1214,6 +1250,7 @@ def analyze_enchanting(
                                 if parsed_dt:
                                     age_min = max(0.0, (now - parsed_dt).total_seconds() / 60.0)
 
+                            bm_vol, bm_missing, bm_liq = get_target_volume_info(target_id, "Black Market")
                             opportunities.append(EnchantingOpportunity(
                                 base_item_id=raw_id,
                                 target_item_id=target_id,
@@ -1239,6 +1276,9 @@ def analyze_enchanting(
                                 mass_profit=profit * mass_batch_size,
                                 item_type=slot_type,
                                 data_age_minutes=age_min,
+                                target_daily_volume=bm_vol,
+                                target_history_missing=bm_missing,
+                                liquidity_status=bm_liq,
                             ))
 
     opportunities.sort(key=lambda o: (o.is_profitable, o.profit_per_item, o.margin_pct), reverse=True)

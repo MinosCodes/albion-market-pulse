@@ -11,7 +11,7 @@ from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import Any, Callable, Sequence
 
-from albion_flips.analyzer import analyze_crafting, analyze_enchanting, analyze_flips, calculate_deal_score, deduplicate_prices
+from albion_flips.analyzer import analyze_crafting, analyze_enchanting, analyze_flips, calculate_deal_score, compute_daily_volume, deduplicate_prices
 from albion_flips.config import AppConfig
 from albion_flips.models import FlipOpportunity, HistoryPoint, HistoryRecord, PriceRecord
 from albion_flips.weights import MOUNT_CAPACITIES, get_item_value, get_item_weight
@@ -898,6 +898,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <button class="pill-btn active" onclick="setEnchantStatus('profitable', this)">🟢 Profitable Only</button>
       <button class="pill-btn" onclick="setEnchantStatus('high', this)">🔥 High Margin (&ge;20%)</button>
       <button class="pill-btn" onclick="setEnchantStatus('all', this)">All Deals</button>
+      <span class="filter-label" style="margin-left: 10px; color: #fdba74;">Demand:</span>
+      <button class="pill-btn active" onclick="setEnchantDemand('all', this)">All Volume</button>
+      <button class="pill-btn" onclick="setEnchantDemand('active', this)">🛡️ Hide Dead (&ge;1/d)</button>
+      <button class="pill-btn" onclick="setEnchantDemand('high', this)">🔥 High Demand (&ge;10/d)</button>
     </div>
 
 
@@ -1144,6 +1148,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
     </div>
 
+    <!-- Live Sniffer Sales & Activity Radar (0s Latency) -->
+    <div id="enchanting-sniffer-radar" style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="pulse-dot" style="background: #38bdf8; box-shadow: 0 0 8px #38bdf8;"></span>
+          <strong style="color: #7dd3fc; font-size: 0.94rem;">⚡ Live Sniffer Sales &amp; Demand Radar:</strong>
+          <span style="font-size: 0.76rem; color: #94a3b8;">Real-time stream of incoming market packet scans. Verifies demand velocity to protect you from dead items.</span>
+        </div>
+        <div style="font-size: 0.78rem; color: #64748b;" id="radar-last-ping">Awaiting live market packets...</div>
+      </div>
+      <div id="radar-latest-event" style="padding: 10px 14px; background: rgba(30, 41, 59, 0.6); border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.05); margin-bottom: 8px;">
+        <div style="color: #94a3b8; font-size: 0.82rem; display: flex; align-items: center; gap: 8px;">
+          <span>📡 <em>Open your in-game market and click an item or click the chart/graph icon to sniff live prices and sales velocity instantly.</em></span>
+        </div>
+      </div>
+      <div id="radar-recent-events" style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;"></div>
+    </div>
+
     <!-- Enchanting Table -->
     <table id="enchanting-table">
       <thead>
@@ -1161,12 +1183,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <th class="num" onclick="sortEnchanting('profit_per_item', true)">Profit / Item</th>
           <th class="num" onclick="sortEnchanting('margin_pct', true)">ROI Margin</th>
           <th class="num" onclick="sortEnchanting('mass_profit', true)" id="th-mass-profit">Mass Profit (10x) ⚡</th>
+          <th class="num" onclick="sortEnchanting('target_daily_volume', true)" title="Daily sales volume in destination city to prevent enchanting dead items">Daily Sales 📈</th>
           <th class="num" onclick="sortEnchanting('data_age_minutes', true)">Data Age</th>
           <th>Action</th>
         </tr>
       </thead>
       <tbody id="enchanting-body">
-        <tr><td colspan="15" style="text-align: center; padding: 28px; color: var(--text-muted);">Loading live enchanting opportunities...</td></tr>
+        <tr><td colspan="16" style="text-align: center; padding: 28px; color: var(--text-muted);">Loading live enchanting opportunities...</td></tr>
       </tbody>
     </table>
   </div>
@@ -1359,6 +1382,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let enchantStepFilter = 'all';
     let enchantSlotFilter = 'all';
     let enchantStatusFilter = 'profitable';
+    let enchantDemandFilter = 'all';
+    let liveSnifferEventsData = [];
 
     // Albion Analyser features: Mount capacity, Station tax fee, and Watchlist
     let selectedMountCap = parseFloat(localStorage.getItem('albion_mount_cap') || '1607');
@@ -1646,6 +1671,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       enchantStepFilter = 'all';
       enchantSlotFilter = 'all';
       enchantStatusFilter = 'profitable';
+      enchantDemandFilter = 'all';
       document.querySelectorAll('.quick-pills .pill-btn').forEach(btn => btn.classList.remove('active'));
       const flipPill = document.querySelector('#quick-flips .pill-btn');
       if (flipPill) flipPill.classList.add('active');
@@ -1653,8 +1679,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       if (bmPill) bmPill.classList.add('active');
       const craftPill = document.querySelector('#quick-crafting .pill-btn');
       if (craftPill) craftPill.classList.add('active');
-      const enchPill = document.querySelector('#quick-enchanting .pill-btn');
-      if (enchPill) enchPill.classList.add('active');
+      document.querySelectorAll('#quick-enchanting button').forEach(b => {
+        const oc = b.getAttribute('onclick') || '';
+        if (oc.includes("'all'") || oc.includes("'profitable'")) {
+          b.classList.add('active');
+        } else {
+          b.classList.remove('active');
+        }
+      });
       currentPage = 1;
       renderCurrentView();
     }
@@ -2463,6 +2495,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       renderEnchanting();
     }
 
+    function setEnchantDemand(demand, btn) {
+      enchantDemandFilter = demand;
+      document.querySelectorAll('#quick-enchanting button').forEach(b => {
+        if (b.getAttribute('onclick') && b.getAttribute('onclick').includes('setEnchantDemand')) {
+          b.classList.remove('active');
+        }
+      });
+      if (btn) btn.classList.add('active');
+      currentPage = 1;
+      renderEnchanting();
+    }
+
     function sortEnchanting(key, isNum = false) {
       if (sortKeyEnchant === key) {
         sortAscEnchant = !sortAscEnchant;
@@ -2563,11 +2607,135 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (!e.is_profitable || e.margin_pct < 20) return false;
       }
 
+      if (enchantDemandFilter === 'active') {
+        if (e.liquidity_status === 'dead' || (e.target_daily_volume !== null && e.target_daily_volume < 1.0)) {
+          return false;
+        }
+      } else if (enchantDemandFilter === 'high') {
+        if (e.target_daily_volume === null || e.target_daily_volume < 10.0) {
+          return false;
+        }
+      }
+
       return true;
+    }
+
+    function renderLiquidityBadge(vol, status) {
+      if (vol === null || vol === undefined) {
+        return `<span style="color: #64748b; font-size: 0.78rem;" title="No sales history recorded yet. Click chart/graph icon in-game to sniff 28-day history">❓ Untracked</span>`;
+      }
+      if (status === 'dead' || vol < 1.0) {
+        return `<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+          <span style="color: #f87171; font-weight: 700; font-size: 0.83rem;">${vol.toFixed(1)}/d</span>
+          <span class="badge" style="background: #450a0a; color: #fca5a5; font-size: 0.65rem; border: 1px solid #7f1d1d;" title="Dead item! Very low or zero daily sales volume. High risk of unsold stock!">⚠️ DEAD ITEM</span>
+        </div>`;
+      }
+      if (status === 'high' || vol >= 20.0) {
+        return `<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+          <span style="color: #34d399; font-weight: 700; font-size: 0.85rem;">🔥 ${Math.round(vol)}/d</span>
+          <span class="badge" style="background: #064e3b; color: #6ee7b7; font-size: 0.65rem; border: 1px solid #059669;" title="High demand item! Rapid turnover.">HIGH DEMAND</span>
+        </div>`;
+      }
+      if (status === 'active' || vol >= 5.0) {
+        return `<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+          <span style="color: #60a5fa; font-weight: 700; font-size: 0.85rem;">📈 ${Math.round(vol)}/d</span>
+          <span class="badge" style="background: #1e3a8a; color: #93c5fd; font-size: 0.65rem;" title="Active trade velocity.">ACTIVE</span>
+        </div>`;
+      }
+      return `<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+        <span style="color: #fbbf24; font-size: 0.83rem;">🟡 ${vol.toFixed(1)}/d</span>
+        <span class="badge" style="background: #451a03; color: #fde047; font-size: 0.65rem;" title="Slow turnover. Enchant in small batches.">SLOW</span>
+      </div>`;
+    }
+
+    function renderSnifferRadar(events) {
+      const pingEl = document.getElementById('radar-last-ping');
+      const latestEl = document.getElementById('radar-latest-event');
+      const recentEl = document.getElementById('radar-recent-events');
+      if (!latestEl || !recentEl) return;
+
+      if (!events || events.length === 0) {
+        if (pingEl) pingEl.textContent = 'Awaiting live market packets...';
+        latestEl.innerHTML = '<div style="color: #94a3b8; font-size: 0.82rem;">📡 <em>Open your in-game market and click an item or click the chart/graph icon to sniff live prices and sales velocity instantly.</em></div>';
+        recentEl.innerHTML = '';
+        return;
+      }
+
+      const latest = events[0];
+      if (pingEl) pingEl.textContent = `Latest packet: ${latest.time || 'Just now'}`;
+
+      let verdictColor = '#94a3b8';
+      let verdictBg = 'rgba(255, 255, 255, 0.05)';
+      let verdictBorder = '#334155';
+      if (latest.liquidity_status === 'high') {
+        verdictColor = '#34d399';
+        verdictBg = 'rgba(6, 78, 59, 0.4)';
+        verdictBorder = '#059669';
+      } else if (latest.liquidity_status === 'active') {
+        verdictColor = '#60a5fa';
+        verdictBg = 'rgba(30, 58, 138, 0.4)';
+        verdictBorder = '#2563eb';
+      } else if (latest.liquidity_status === 'slow') {
+        verdictColor = '#fbbf24';
+        verdictBg = 'rgba(69, 26, 3, 0.4)';
+        verdictBorder = '#d97706';
+      } else if (latest.liquidity_status === 'dead') {
+        verdictColor = '#f87171';
+        verdictBg = 'rgba(69, 10, 10, 0.5)';
+        verdictBorder = '#dc2626';
+      } else if (latest.liquidity_status === 'material') {
+        verdictColor = '#c084fc';
+        verdictBg = 'rgba(88, 28, 135, 0.4)';
+        verdictBorder = '#9333ea';
+      }
+
+      const iconUrl = `https://render.albiononline.com/v1/item/${encodeURIComponent(latest.item_id)}.png?quality=1`;
+      const priceText = latest.price ? `${latest.price.toLocaleString()}s (${latest.price_type})` : 'Price Scanned';
+      const volText = latest.daily_volume !== null ? ` • Volume: <strong>${latest.daily_volume.toFixed(1)} sold/day</strong>` : '';
+
+      latestEl.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 38px; height: 38px; background: #0b0f19; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
+              <img src="${iconUrl}" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.style.display='none';">
+            </div>
+            <div>
+              <div style="font-weight: 700; color: #f8fafc; font-size: 0.9rem; display: flex; align-items: center; gap: 6px;">
+                <span>${escapeHtml(latest.item_name)}</span>
+                <span class="badge badge-tier" style="font-size: 0.68rem;">${latest.step_label}</span>
+                <span style="font-size: 0.75rem; color: #94a3b8; font-weight: normal;">in <strong>${latest.city}</strong></span>
+              </div>
+              <div style="font-size: 0.78rem; color: #cbd5e1; margin-top: 2px;">
+                ${priceText}${volText}
+              </div>
+            </div>
+          </div>
+          <div style="padding: 6px 12px; border-radius: 6px; background: ${verdictBg}; border: 1px solid ${verdictBorder}; color: ${verdictColor}; font-size: 0.82rem; font-weight: 700;">
+            ${latest.verdict}
+          </div>
+        </div>
+      `;
+
+      if (events.length > 1) {
+        recentEl.innerHTML = '<span style="font-size: 0.72rem; color: #64748b; margin-right: 4px;">Recent Scans:</span>' + events.slice(1, 8).map(ev => {
+          let badgeColor = '#94a3b8';
+          if (ev.liquidity_status === 'high') badgeColor = '#34d399';
+          else if (ev.liquidity_status === 'active') badgeColor = '#60a5fa';
+          else if (ev.liquidity_status === 'slow') badgeColor = '#fbbf24';
+          else if (ev.liquidity_status === 'dead') badgeColor = '#f87171';
+          else if (ev.liquidity_status === 'material') badgeColor = '#c084fc';
+          const shortName = ev.item_name.length > 18 ? ev.item_name.substring(0, 16) + '..' : ev.item_name;
+          const volStr = ev.daily_volume !== null ? `${ev.daily_volume.toFixed(1)}/d` : ev.step_label;
+          return `<span class="badge" style="background: #1e293b; color: ${badgeColor}; border: 1px solid rgba(255,255,255,0.08); font-size: 0.72rem; cursor: pointer;" onclick="document.getElementById('search-box').value='${escapeHtml(ev.item_name)}'; onSearchInput();" title="Click to filter table for ${escapeHtml(ev.item_name)} in ${ev.city}">${shortName} (${volStr})</span>`;
+        }).join('');
+      } else {
+        recentEl.innerHTML = '';
+      }
     }
 
     function renderEnchanting() {
       renderArtifactMats();
+      renderSnifferRadar(liveSnifferEventsData);
       const tbody = document.getElementById('enchanting-body');
       if (!tbody) return;
 
@@ -2599,7 +2767,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       updatePagination(totalItems, startIndex, pageSlice.length, totalPages);
 
       if (pageSlice.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="15" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
+        tbody.innerHTML = '<tr><td colspan="16" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
           'No enchanting opportunities match your current filters.<br><small style="margin-top:8px; display:inline-block; color:#64748b;">(Try selecting "All Deals" or switching Enchant Step)</small>' +
           '</td></tr>';
         return;
@@ -2653,6 +2821,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               ${e.margin_pct > 0 ? '+' : ''}${e.margin_pct.toFixed(1)}%
             </td>
             <td class="num">${massProfitDisplay}</td>
+            <td class="num">${renderLiquidityBadge(e.target_daily_volume, e.liquidity_status)}</td>
             <td class="num">${renderAgeCell(e, isBm)}</td>
             <td style="white-space: nowrap;">
               <button class="btn btn-secondary" style="padding: 3px 7px; font-size: 0.73rem;" onclick="copyItemName('${safeItemName}', this)" title="Copy Item Search Name">
@@ -2745,6 +2914,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         enchantingData = data.enchanting || [];
         artifactMatsData = data.artifact_materials || {};
         pricesData = data.recent_prices || [];
+        liveSnifferEventsData = data.live_sniffer_events || [];
 
         // Update Black Market tab badge
         const bmBadge = document.getElementById('bm-badge');
@@ -2808,6 +2978,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           prevSnifferPackets = currentPackets;
         }
 
+        renderSnifferRadar(liveSnifferEventsData);
         renderCurrentView();
 
       } catch (err) {
@@ -3307,6 +3478,7 @@ class FlipDataStore:
         self.sniffer_last_city: str = ""
         self.sniffer_last_time: datetime | None = None
         self.sniffer_last_timestamp: float = 0.0
+        self.live_sniffer_events: list[dict[str, Any]] = []
         self._load_overrides()
 
     def _load_overrides(self) -> None:
@@ -3483,6 +3655,60 @@ class FlipDataStore:
             self.sniffer_last_time = now
             self.sniffer_last_timestamp = time.time()
 
+            # Record events to live_sniffer_events
+            vol_days = self.last_config.volume_days if self.last_config else 3
+            for (item_id, city, quality), data in aggregated.items():
+                price_val = data["min_sell"] if data["min_sell"] > 0 else data["max_buy"]
+                h_name = get_human_name(item_id)
+                t = parse_tier(item_id) or 4
+                e = parse_enchant(item_id)
+                step_str = "Material" if ("RUNE" in item_id or "SOUL" in item_id or "RELIC" in item_id) else f"{t}.{e}"
+
+                daily_vol = compute_daily_volume(self.last_history, item_id, city, quality=quality, volume_days=vol_days)
+                if (daily_vol is None or daily_vol == 0) and not ("RUNE" in item_id or "SOUL" in item_id or "RELIC" in item_id):
+                    for q in (1, 2, 3):
+                        q_vol = compute_daily_volume(self.last_history, item_id, city, quality=q, volume_days=vol_days)
+                        if q_vol is not None and q_vol > 0:
+                            daily_vol = q_vol
+                            break
+
+                if "RUNE" in item_id or "SOUL" in item_id or "RELIC" in item_id:
+                    liq = "material"
+                    verdict = f"✨ Scanned Artifact Material: {price_val:,}s in {city} (Foundry costs updated)"
+                elif daily_vol is not None:
+                    if daily_vol >= 20.0:
+                        liq = "high"
+                        verdict = f"🔥 HIGH DEMAND (~{round(daily_vol)} sold/d) • Safe to mass enchant!"
+                    elif daily_vol >= 5.0:
+                        liq = "active"
+                        verdict = f"🟢 ACTIVE LIQUIDITY (~{round(daily_vol)} sold/d) • Solid turnover."
+                    elif daily_vol >= 1.0:
+                        liq = "slow"
+                        verdict = f"🟡 SLOW MOVER (~{daily_vol:.1f} sold/d) • Enchant in small batches."
+                    else:
+                        liq = "dead"
+                        verdict = "⚠️ DEAD ITEM (0 sales recorded/day) • High risk of unsellable stock!"
+                else:
+                    liq = "untracked"
+                    verdict = "❓ No sales history yet (Click chart icon in-game to sniff sales history)"
+
+                event = {
+                    "item_id": item_id,
+                    "item_name": h_name,
+                    "tier": t,
+                    "enchant": e,
+                    "step_label": step_str,
+                    "city": city,
+                    "price": price_val,
+                    "price_type": "Sell Order" if data["min_sell"] > 0 else "Buy Order",
+                    "daily_volume": round(daily_vol, 1) if daily_vol is not None else None,
+                    "liquidity_status": liq,
+                    "verdict": verdict,
+                    "time": now.strftime("%H:%M:%S UTC"),
+                    "timestamp": time.time(),
+                }
+                self.live_sniffer_events = [event] + [ev for ev in self.live_sniffer_events if not (ev["item_id"] == item_id and ev["city"] == city)][:9]
+
         self.recompute()
         logger.info("⚡ Ingested %d live market orders for %s from local sniffer", len(orders), last_city)
         return {
@@ -3496,6 +3722,8 @@ class FlipDataStore:
         if not histories:
             return {"histories_processed": 0}
 
+        vol_days = self.last_config.volume_days if self.last_config else 3
+        now = datetime.now(timezone.utc)
         with self._lock:
             for h in histories:
                 item_id = str(h.get("ItemTypeId", "")).strip()
@@ -3514,7 +3742,8 @@ class FlipDataStore:
                         break
                 pt = HistoryPoint(item_count=item_count, avg_price=avg_price, timestamp=ts)
                 if matched:
-                    matched.data.append(pt)
+                    if not any(p.timestamp == ts for p in matched.data):
+                        matched.data.append(pt)
                 else:
                     self.last_history.append(HistoryRecord(
                         location=city,
@@ -3522,6 +3751,45 @@ class FlipDataStore:
                         quality=quality,
                         data=[pt],
                     ))
+
+                daily_vol = compute_daily_volume(self.last_history, item_id, city, quality=quality, volume_days=vol_days)
+                h_name = get_human_name(item_id)
+                t = parse_tier(item_id) or 4
+                e = parse_enchant(item_id)
+
+                if daily_vol is not None:
+                    if daily_vol >= 20.0:
+                        liq = "high"
+                        verdict = f"🔥 VERIFIED HIGH DEMAND (~{round(daily_vol)} sold/d) • Safe to mass enchant!"
+                    elif daily_vol >= 5.0:
+                        liq = "active"
+                        verdict = f"🟢 VERIFIED ACTIVE (~{round(daily_vol)} sold/d) • Healthy trade velocity."
+                    elif daily_vol >= 1.0:
+                        liq = "slow"
+                        verdict = f"🟡 VERIFIED SLOW (~{daily_vol:.1f} sold/d) • Low turnover volume."
+                    else:
+                        liq = "dead"
+                        verdict = "⚠️ VERIFIED DEAD ITEM (0 sales in last 3 days) • DO NOT MASS ENCHANT!"
+                else:
+                    liq = "untracked"
+                    verdict = "❓ Sales history logged"
+
+                event = {
+                    "item_id": item_id,
+                    "item_name": h_name,
+                    "tier": t,
+                    "enchant": e,
+                    "step_label": f"{t}.{e}",
+                    "city": city,
+                    "price": avg_price if avg_price > 0 else None,
+                    "price_type": "Sales History",
+                    "daily_volume": round(daily_vol, 1) if daily_vol is not None else None,
+                    "liquidity_status": liq,
+                    "verdict": verdict,
+                    "time": now.strftime("%H:%M:%S UTC"),
+                    "timestamp": time.time(),
+                }
+                self.live_sniffer_events = [event] + [ev for ev in self.live_sniffer_events if not (ev["item_id"] == item_id and ev["city"] == city)][:9]
 
         self.recompute()
         return {"histories_processed": len(histories)}
@@ -3818,6 +4086,7 @@ class FlipDataStore:
             enchant_ops, artifact_mats_dict = analyze_enchanting(
                 prices=clean_prices,
                 config=config,
+                history=self.last_history,
                 now=now,
                 fulfilled_orders=self.fulfilled_orders,
                 price_overrides=self.price_overrides,
@@ -3913,6 +4182,9 @@ class FlipDataStore:
                     "data_age_minutes": round(e.data_age_minutes, 1),
                     "is_live_sniffer": is_e_sniffer,
                     "sniffer_age_seconds": e_sniffer_age_secs,
+                    "target_daily_volume": round(e.target_daily_volume, 1) if e.target_daily_volume is not None else None,
+                    "target_history_missing": e.target_history_missing,
+                    "liquidity_status": e.liquidity_status,
                 })
 
         with self._lock:
@@ -3975,6 +4247,7 @@ class FlipDataStore:
                 "enchant_count": profitable_enchant_count,
                 "artifact_materials": self.artifact_materials,
                 "recent_prices": list(self.recent_prices),
+                "live_sniffer_events": list(self.live_sniffer_events),
                 "overrides_count": len(self.fulfilled_orders) + len(self.price_overrides),
                 "overrides": overrides_list,
             }
@@ -4028,11 +4301,22 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         clean_path = self.path.split("?")[0]
-        if "markethistories.ingest" in clean_path:
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+        except Exception:
+            body = {}
+
+        is_history = "markethistories.ingest" in clean_path or (isinstance(body, dict) and ("Histories" in body or "histories" in body))
+        if is_history:
             try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
-                histories = body.get("Histories", []) if isinstance(body, dict) else []
+                histories = []
+                if isinstance(body, list):
+                    histories = body
+                elif isinstance(body, dict):
+                    histories = body.get("Histories") or body.get("histories") or []
+                    if not histories and "ItemTypeId" in body and "ItemCount" in body:
+                        histories = [body]
                 res = self.store.ingest_market_histories(histories)
                 self._send_json({"status": "ok", "ingested_histories": len(histories), "details": res})
             except Exception as e:
@@ -4041,8 +4325,6 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
                 self.end_headers()
         elif "marketorders.ingest" in clean_path or clean_path.startswith("/api/ingest"):
             try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
                 orders = []
                 if isinstance(body, list):
                     orders = body

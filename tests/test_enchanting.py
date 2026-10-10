@@ -6,7 +6,7 @@ from urllib.request import Request, urlopen
 
 from albion_flips.analyzer import analyze_enchanting
 from albion_flips.config import AppConfig
-from albion_flips.models import PriceRecord
+from albion_flips.models import HistoryPoint, HistoryRecord, PriceRecord
 from albion_flips.profit import calculate_enchanting_materials, calculate_enchanting_profit
 from albion_flips.web import FlipDataStore, start_web_server
 
@@ -213,3 +213,138 @@ def test_web_store_enchanting_integration() -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_analyze_enchanting_with_sales_history_and_dead_item() -> None:
+    now = datetime(2026, 10, 10, 12, 0, 0, tzinfo=timezone.utc)
+    config = AppConfig(premium=True, volume_days=3)
+
+    prices = [
+        PriceRecord(
+            item_id="T4_BAG",
+            city="Martlock",
+            quality=1,
+            sell_price_min=1000,
+            sell_price_min_date=now.isoformat(),
+            sell_price_max=1000,
+            sell_price_max_date=now.isoformat(),
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+        PriceRecord(
+            item_id="T4_RUNE",
+            city="Martlock",
+            quality=1,
+            sell_price_min=30,
+            sell_price_min_date=now.isoformat(),
+            sell_price_max=30,
+            sell_price_max_date=now.isoformat(),
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+        PriceRecord(
+            item_id="T4_BAG@1",
+            city="Martlock",
+            quality=1,
+            sell_price_min=8000,
+            sell_price_min_date=now.isoformat(),
+            sell_price_max=8000,
+            sell_price_max_date=now.isoformat(),
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+        # A dead item: T4_ARMOR_CLOTH_SET1 (0 sales)
+        PriceRecord(
+            item_id="T4_ARMOR_CLOTH_SET1",
+            city="Martlock",
+            quality=1,
+            sell_price_min=2000,
+            sell_price_min_date=now.isoformat(),
+            sell_price_max=2000,
+            sell_price_max_date=now.isoformat(),
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+        PriceRecord(
+            item_id="T4_ARMOR_CLOTH_SET1@1",
+            city="Martlock",
+            quality=1,
+            sell_price_min=15000,
+            sell_price_min_date=now.isoformat(),
+            sell_price_max=15000,
+            sell_price_max_date=now.isoformat(),
+            buy_price_min=0,
+            buy_price_min_date="",
+            buy_price_max=0,
+            buy_price_max_date="",
+        ),
+    ]
+
+    history = [
+        HistoryRecord(
+            location="Martlock",
+            item_id="T4_BAG@1",
+            quality=1,
+            data=[
+                HistoryPoint(item_count=20, avg_price=8000, timestamp="2026-10-10T00:00:00"),
+                HistoryPoint(item_count=20, avg_price=7900, timestamp="2026-10-09T00:00:00"),
+                HistoryPoint(item_count=20, avg_price=8100, timestamp="2026-10-08T00:00:00"),
+            ],
+        ),
+        HistoryRecord(
+            location="Martlock",
+            item_id="T4_ARMOR_CLOTH_SET1@1",
+            quality=1,
+            data=[
+                HistoryPoint(item_count=0, avg_price=0, timestamp="2026-10-10T00:00:00"),
+            ],
+        ),
+    ]
+
+    opps, mats = analyze_enchanting(prices, config, history=history, now=now)
+    bag_opp = next(o for o in opps if o.base_item_id == "T4_BAG")
+    assert bag_opp.target_daily_volume == 20.0
+    assert bag_opp.target_history_missing is False
+    assert bag_opp.liquidity_status == "high"
+
+    armor_opp = next(o for o in opps if o.base_item_id == "T4_ARMOR_CLOTH_SET1")
+    assert armor_opp.target_daily_volume == 0.0
+    assert armor_opp.target_history_missing is False
+    assert armor_opp.liquidity_status == "dead"
+
+
+def test_ingest_market_histories_radar_and_volume() -> None:
+    store = FlipDataStore()
+    config = AppConfig()
+    store.update(server="europe", last_refresh="2026-10-10 12:00:00 UTC", opportunities=[], config=config)
+
+    histories = [
+        {
+            "ItemTypeId": "T4_BAG@1",
+            "LocationId": "3008",  # Martlock
+            "QualityLevel": 1,
+            "ItemCount": 45,
+            "AvgPrice": 75000000,  # 7,500 silver
+            "Timestamp": "2026-10-10T11:00:00",
+        }
+    ]
+    res = store.ingest_market_histories(histories)
+    assert res["histories_processed"] == 1
+
+    data = store.get_data()
+    assert "live_sniffer_events" in data
+    assert len(data["live_sniffer_events"]) >= 1
+
+    event = data["live_sniffer_events"][0]
+    assert event["item_id"] == "T4_BAG@1"
+    assert event["city"] == "Martlock"
+    assert event["daily_volume"] is not None
+    assert "Safe to mass enchant" in event["verdict"] or "VERIFIED" in event["verdict"]
