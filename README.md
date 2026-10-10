@@ -22,6 +22,12 @@ A real-time market analysis tool and interactive web dashboard for **Albion Onli
   - **Live Arrival Feed**: Badges items that were recently scanned (`⚡ JUST IN`, `🟢 RECENT SCAN`).
   - **Filter by Freshness**: Quickly isolate fresh market orders (`<15m` old) before other players fill them.
 - ⚒️ **Crafting Profit Calculator**: Real-time margin calculations factoring in local city return rate bonuses (15.2% Royal / 24.8% Caerleon), focus crafting (43.5% / 47.9%), and station fees.
+- 🔮 **Enchanting & Mass Enchanting Arbitrage**:
+  - **Artifact Foundry Recipes**: Calculates exact material counts (192 for 2H Weapons, 144 for 1H Weapons, 96 for Armor & Bags, 48 for Helmets, Boots, Capes & Off-hands) across `.0 ➜ .1`, `.1 ➜ .2`, `.2 ➜ .3`, `.0 ➜ .2`, and `.0 ➜ .3` transitions.
+  - **Live Material Ticker**: Live-scanned rune, soul, and relic prices with 1-click manual price overrides and live sniffer detection.
+  - **Mass Batch Profit Simulator**: Configurable batch sizing (10x, 25x, 50x, 100x, or custom) calculating total material cost, mass profit, and ROI margin.
+  - **Dual Selling Modes**: Supports local city listing (with tax & setup fee) as well as direct Black Market buy order arbitrage.
+  - **1-Click Copy**: Dedicated copy buttons for both the gear item and the exact enchanting material.
 - ⚡ **Live Network Sniffer Integration**: Built-in status indicator and guide for pairing with the open-source `albiondata-client` for real-time 0-second market updates.
 - 🌐 **Interactive Web Dashboard**: Fast, responsive dark-mode dashboard running locally at `http://localhost:8765`.
 - ⚙️ **Configurable Tax & Fees**: Accurately factors in Premium tax (4%), non-premium tax (8%), and listing setup fees (2.5%).

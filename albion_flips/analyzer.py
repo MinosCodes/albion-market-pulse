@@ -7,6 +7,7 @@ import logging
 from albion_flips.config import AppConfig
 from albion_flips.models import (
     CraftingOpportunity,
+    EnchantingOpportunity,
     ExitType,
     FlipOpportunity,
     HistoryRecord,
@@ -14,6 +15,8 @@ from albion_flips.models import (
 )
 from albion_flips.profit import (
     calculate_crafting_profit,
+    calculate_enchanting_materials,
+    calculate_enchanting_profit,
     calculate_instant_profit,
     calculate_margin,
     calculate_profit_per_kg,
@@ -938,4 +941,299 @@ def analyze_crafting(
 
     opportunities.sort(key=lambda x: x.profit_per_item, reverse=True)
     return opportunities
+
+
+DEFAULT_RUNE_PRICES: dict[str, int] = {
+    "T4_RUNE": 45,
+    "T4_SOUL": 220,
+    "T4_RELIC": 1200,
+    "T5_RUNE": 180,
+    "T5_SOUL": 950,
+    "T5_RELIC": 4500,
+    "T6_RUNE": 650,
+    "T6_SOUL": 3200,
+    "T6_RELIC": 16000,
+    "T7_RUNE": 2400,
+    "T7_SOUL": 12000,
+    "T7_RELIC": 55000,
+    "T8_RUNE": 9500,
+    "T8_SOUL": 48000,
+    "T8_RELIC": 220000,
+}
+
+MATERIAL_NAMES: dict[str, str] = {
+    "T4_RUNE": "Adept's Rune",
+    "T4_SOUL": "Adept's Soul",
+    "T4_RELIC": "Adept's Relic",
+    "T5_RUNE": "Expert's Rune",
+    "T5_SOUL": "Expert's Soul",
+    "T5_RELIC": "Expert's Relic",
+    "T6_RUNE": "Master's Rune",
+    "T6_SOUL": "Master's Soul",
+    "T6_RELIC": "Master's Relic",
+    "T7_RUNE": "Grandmaster's Rune",
+    "T7_SOUL": "Grandmaster's Soul",
+    "T7_RELIC": "Grandmaster's Relic",
+    "T8_RUNE": "Elder's Rune",
+    "T8_SOUL": "Elder's Soul",
+    "T8_RELIC": "Elder's Relic",
+}
+
+
+def is_enchantable_item(item_id: str) -> bool:
+    """Checks if an item ID represents gear that can be enchanted at the Artifact Foundry."""
+    clean = item_id.split("@")[0].upper()
+    if not (clean.startswith("T4_") or clean.startswith("T5_") or clean.startswith("T6_") or clean.startswith("T7_") or clean.startswith("T8_")):
+        return False
+    if any(m in clean for m in ("_RUNE", "_SOUL", "_RELIC", "_SHARD", "_POTION", "_MEAL", "_FISH", "_MOUNT", "_TOKEN", "_QUESTITEM", "PLANKS", "STONEBLOCK", "METALBAR", "CLOTH", "LEATHER", "WOOD", "ROCK", "ORE", "FIBER", "HIDE")):
+        return False
+    return any(slot in clean for slot in ("_BAG", "_CAPE", "_MAIN_", "_2H_", "_ARMOR_", "_HEAD_", "_SHOES_", "_OFF_"))
+
+
+def analyze_enchanting(
+    prices: Sequence[PriceRecord],
+    config: AppConfig,
+    now: datetime | None = None,
+    fulfilled_orders: dict[tuple[str, str, int], datetime] | None = None,
+    price_overrides: dict[tuple[str, str, int], int] | None = None,
+    custom_rune_prices: dict[str, int] | None = None,
+    item_names: dict[str, str] | None = None,
+    mass_batch_size: int = 10,
+) -> tuple[list[EnchantingOpportunity], dict[str, Any]]:
+    """Analyzes enchanting profitability across all monitored cities and the Black Market.
+
+    Returns:
+        (opportunities, material_status_dict)
+    """
+    clean_prices = deduplicate_prices(
+        prices=prices,
+        now=now,
+        fulfilled_orders=fulfilled_orders,
+        price_overrides=price_overrides,
+    )
+    tax_rate = config.tax_rate_premium if config.premium else config.tax_rate_standard
+    setup_fee_rate = config.setup_fee_rate
+
+    # 1. Harvest live Rune, Soul, Relic prices per city and global lowest
+    city_mats: dict[tuple[str, str], int] = {}
+    cheapest_mats: dict[str, tuple[int, str]] = {}
+    mat_dates: dict[tuple[str, str], str] = {}
+
+    for p in clean_prices:
+        mat_id = p.item_id.upper()
+        if mat_id in DEFAULT_RUNE_PRICES:
+            price = p.sell_price_min if p.sell_price_min > 0 else (p.buy_price_max if p.buy_price_max > 0 else 0)
+            if price > 0:
+                city_mats[(mat_id, p.city)] = price
+                mat_dates[(mat_id, p.city)] = p.sell_price_min_date or p.buy_price_max_date
+                if mat_id not in cheapest_mats or price < cheapest_mats[mat_id][0]:
+                    cheapest_mats[mat_id] = (price, p.city)
+
+    # Build material status dict for the UI Artifact Foundry Ticker
+    material_status: dict[str, Any] = {}
+    for mat_id, def_price in DEFAULT_RUNE_PRICES.items():
+        user_override = (custom_rune_prices or {}).get(mat_id)
+        if user_override and user_override > 0:
+            final_p = user_override
+            source = "override"
+        elif mat_id in cheapest_mats:
+            final_p = cheapest_mats[mat_id][0]
+            source = "live"
+        else:
+            final_p = def_price
+            source = "default"
+
+        tier = int(mat_id[1])
+        mat_type = mat_id.split("_")[1].lower()  # rune, soul, relic
+        material_status[mat_id] = {
+            "id": mat_id,
+            "name": MATERIAL_NAMES.get(mat_id, mat_id),
+            "tier": tier,
+            "type": mat_type,
+            "price": final_p,
+            "source": source,
+            "city": cheapest_mats.get(mat_id, (0, "All"))[1],
+        }
+
+    # Helper function to get material unit price for a given city
+    def get_mat_price(mat_id: str, city: str) -> int:
+        if custom_rune_prices and mat_id in custom_rune_prices and custom_rune_prices[mat_id] > 0:
+            return custom_rune_prices[mat_id]
+        if (mat_id, city) in city_mats:
+            return city_mats[(mat_id, city)]
+        if mat_id in cheapest_mats:
+            return cheapest_mats[mat_id][0]
+        return DEFAULT_RUNE_PRICES.get(mat_id, 100)
+
+    # 2. Build index of item prices
+    city_item_sell: dict[tuple[str, str], int] = {}
+    city_item_buy: dict[tuple[str, str], int] = {}
+    item_dates: dict[tuple[str, str], str] = {}
+    bm_buy: dict[str, int] = {}
+    bm_dates: dict[str, str] = {}
+    all_item_ids: set[str] = set()
+
+    for p in clean_prices:
+        all_item_ids.add(p.item_id)
+        if p.sell_price_min > 0:
+            city_item_sell[(p.item_id, p.city)] = p.sell_price_min
+            item_dates[(p.item_id, p.city)] = p.sell_price_min_date
+        if p.buy_price_max > 0:
+            city_item_buy[(p.item_id, p.city)] = p.buy_price_max
+        if p.city == "Black Market" and p.buy_price_max > 0:
+            bm_buy[p.item_id] = p.buy_price_max
+            bm_dates[p.item_id] = p.buy_price_max_date
+
+    # 3. Analyze all enchantable gear
+    opportunities: list[EnchantingOpportunity] = []
+    seen_opp_keys: set[tuple[str, str, str, str]] = set()
+
+    for raw_id in all_item_ids:
+        if not is_enchantable_item(raw_id):
+            continue
+
+        base_stem = raw_id.split("@")[0]
+        tier = int(base_stem[1]) if len(base_stem) > 1 and base_stem[1].isdigit() else 4
+        from_enchant = int(raw_id.split("@")[1]) if "@" in raw_id else 0
+
+        if from_enchant >= 3:
+            continue
+
+        slot_type, mat_qty = calculate_enchanting_materials(base_stem)
+        human_name = (item_names or {}).get(base_stem) or base_stem.replace("_", " ").title()
+
+        steps: list[tuple[int, list[str]]] = []
+        if from_enchant == 0:
+            steps.append((1, [f"T{tier}_RUNE"]))
+            steps.append((2, [f"T{tier}_RUNE", f"T{tier}_SOUL"]))
+            steps.append((3, [f"T{tier}_RUNE", f"T{tier}_SOUL", f"T{tier}_RELIC"]))
+        elif from_enchant == 1:
+            steps.append((2, [f"T{tier}_SOUL"]))
+            steps.append((3, [f"T{tier}_SOUL", f"T{tier}_RELIC"]))
+        elif from_enchant == 2:
+            steps.append((3, [f"T{tier}_RELIC"]))
+
+        # For every city where raw_id can be bought:
+        for (item_id, city), buy_cost in city_item_sell.items():
+            if item_id != raw_id or buy_cost <= 0:
+                continue
+
+            for to_enchant, mat_ids in steps:
+                target_id = f"{base_stem}@{to_enchant}"
+
+                # Calculate total enchanting materials cost in this city
+                total_mat_cost = 0
+                mat_labels: list[str] = []
+                for m_id in mat_ids:
+                    u_price = get_mat_price(m_id, city)
+                    total_mat_cost += mat_qty * u_price
+                    mat_name = MATERIAL_NAMES.get(m_id, m_id)
+                    mat_labels.append(f"{mat_qty}x {mat_name} (@ {u_price:,}s)")
+
+                mat_desc = " + ".join(mat_labels)
+                primary_mat_id = mat_ids[0] if len(mat_ids) == 1 else " + ".join(mat_ids)
+                primary_mat_name = mat_desc
+
+                # Check sell targets:
+                # 1. Same City Market Sell Order (local foundry enchanting)
+                if (target_id, city) in city_item_sell:
+                    target_sell = city_item_sell[(target_id, city)]
+                    if target_sell > 0:
+                        tot_cost, profit, margin = calculate_enchanting_profit(
+                            base_item_price=buy_cost,
+                            enchant_mat_cost=total_mat_cost,
+                            sell_price=target_sell,
+                            tax_rate=tax_rate,
+                            setup_fee_rate=setup_fee_rate,
+                            is_buy_order_exit=False,
+                        )
+                        opp_key = (raw_id, target_id, city, city)
+                        if opp_key not in seen_opp_keys:
+                            seen_opp_keys.add(opp_key)
+                            age_min = 0.0
+                            date_str = item_dates.get((target_id, city)) or item_dates.get((raw_id, city))
+                            if date_str and now:
+                                parsed_dt = parse_aodp_datetime(date_str)
+                                if parsed_dt:
+                                    age_min = max(0.0, (now - parsed_dt).total_seconds() / 60.0)
+
+                            opportunities.append(EnchantingOpportunity(
+                                base_item_id=raw_id,
+                                target_item_id=target_id,
+                                item_name=human_name,
+                                tier=tier,
+                                from_enchant=from_enchant,
+                                to_enchant=to_enchant,
+                                city=city,
+                                sell_city=city,
+                                base_item_price=buy_cost,
+                                enchant_mat_id=primary_mat_id,
+                                enchant_mat_name=primary_mat_name,
+                                enchant_mat_qty=mat_qty * len(mat_ids),
+                                enchant_mat_unit_price=get_mat_price(mat_ids[0], city),
+                                enchant_mat_total_cost=total_mat_cost,
+                                total_cost=tot_cost,
+                                sell_price=target_sell,
+                                net_revenue=tot_cost + profit,
+                                profit_per_item=profit,
+                                margin_pct=round(margin, 1),
+                                is_profitable=(profit > 0),
+                                mass_batch_size=mass_batch_size,
+                                mass_profit=profit * mass_batch_size,
+                                item_type=slot_type,
+                                data_age_minutes=age_min,
+                            ))
+
+                # 2. Black Market Buy Order (instant sell)
+                if target_id in bm_buy:
+                    bm_sell = bm_buy[target_id]
+                    if bm_sell > 0:
+                        tot_cost, profit, margin = calculate_enchanting_profit(
+                            base_item_price=buy_cost,
+                            enchant_mat_cost=total_mat_cost,
+                            sell_price=bm_sell,
+                            tax_rate=tax_rate,
+                            setup_fee_rate=0.0,
+                            is_buy_order_exit=True,
+                        )
+                        opp_key = (raw_id, target_id, city, "Black Market")
+                        if opp_key not in seen_opp_keys:
+                            seen_opp_keys.add(opp_key)
+                            age_min = 0.0
+                            date_str = bm_dates.get(target_id)
+                            if date_str and now:
+                                parsed_dt = parse_aodp_datetime(date_str)
+                                if parsed_dt:
+                                    age_min = max(0.0, (now - parsed_dt).total_seconds() / 60.0)
+
+                            opportunities.append(EnchantingOpportunity(
+                                base_item_id=raw_id,
+                                target_item_id=target_id,
+                                item_name=human_name,
+                                tier=tier,
+                                from_enchant=from_enchant,
+                                to_enchant=to_enchant,
+                                city=city,
+                                sell_city="Black Market",
+                                base_item_price=buy_cost,
+                                enchant_mat_id=primary_mat_id,
+                                enchant_mat_name=primary_mat_name,
+                                enchant_mat_qty=mat_qty * len(mat_ids),
+                                enchant_mat_unit_price=get_mat_price(mat_ids[0], city),
+                                enchant_mat_total_cost=total_mat_cost,
+                                total_cost=tot_cost,
+                                sell_price=bm_sell,
+                                net_revenue=tot_cost + profit,
+                                profit_per_item=profit,
+                                margin_pct=round(margin, 1),
+                                is_profitable=(profit > 0),
+                                mass_batch_size=mass_batch_size,
+                                mass_profit=profit * mass_batch_size,
+                                item_type=slot_type,
+                                data_age_minutes=age_min,
+                            ))
+
+    opportunities.sort(key=lambda o: (o.is_profitable, o.profit_per_item, o.margin_pct), reverse=True)
+    return opportunities, material_status
+
 

@@ -117,3 +117,33 @@ class CraftingOpportunity:
     station_fee: float = 0.0
 
 
+@dataclass(slots=True)
+class EnchantingOpportunity:
+    base_item_id: str
+    target_item_id: str
+    item_name: str
+    tier: int
+    from_enchant: int
+    to_enchant: int
+    city: str
+    sell_city: str
+    base_item_price: int
+    enchant_mat_id: str
+    enchant_mat_name: str
+    enchant_mat_qty: int
+    enchant_mat_unit_price: int
+    enchant_mat_total_cost: int
+    total_cost: int
+    sell_price: int
+    net_revenue: int
+    profit_per_item: int
+    margin_pct: float
+    is_profitable: bool
+    mass_batch_size: int = 10
+    mass_profit: int = 0
+    item_type: str = "Bag"
+    data_age_minutes: float = 0.0
+    is_live_sniffer: bool = False
+    sniffer_age_seconds: int | None = None
+
+

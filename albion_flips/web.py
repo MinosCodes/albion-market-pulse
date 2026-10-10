@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from albion_flips.analyzer import analyze_crafting, analyze_flips, calculate_deal_score, deduplicate_prices
+from albion_flips.analyzer import analyze_crafting, analyze_enchanting, analyze_flips, calculate_deal_score, deduplicate_prices
 from albion_flips.config import AppConfig
 from albion_flips.models import FlipOpportunity, HistoryPoint, HistoryRecord, PriceRecord
 from albion_flips.weights import MOUNT_CAPACITIES, get_item_value, get_item_weight
@@ -738,6 +738,36 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       70% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
       100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
     }
+    .batch-btn.active {
+      background: #8b5cf6 !important;
+      border-color: #a78bfa !important;
+      color: #ffffff !important;
+      font-weight: 700;
+    }
+    .mat-chip {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 6px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.2s;
+    }
+    .mat-chip:hover {
+      border-color: #8b5cf6;
+      background: rgba(139, 92, 246, 0.15);
+    }
+    .mat-chip-name {
+      font-weight: 600;
+      color: #f1f5f9;
+      font-size: 0.78rem;
+    }
+    .mat-chip-price {
+      font-weight: 700;
+      color: #38bdf8;
+      font-size: 0.82rem;
+    }
   </style>
 
 </head>
@@ -783,6 +813,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       🏴‍☠️ Black Market <span id="bm-badge" class="bm-pulse-badge" style="display: none;"></span>
     </button>
     <button id="tab-crafting" class="tab-btn" onclick="switchTab('crafting')">🔨 Crafting & Refining Profit</button>
+    <button id="tab-enchanting" class="tab-btn" onclick="switchTab('enchanting')">
+      🔮 Enchanting & Foundry <span id="enchant-badge" class="badge" style="background:#8b5cf6; color:#fff; font-size:0.72rem; margin-left:4px; display:none;">0</span>
+    </button>
     <button id="tab-watchlist" class="tab-btn" onclick="switchTab('watchlist')">⭐ Watchlist <span id="watchlist-badge" class="badge" style="background:#f59e0b; color:#000; font-size:0.72rem; margin-left:4px; display:none;">0</span></button>
     <button id="tab-prices" class="tab-btn" onclick="switchTab('prices')">📡 Live Scanned Prices</button>
   </div>
@@ -840,6 +873,30 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <input id="station-fee-input" type="number" value="500" min="0" max="2500" step="25" style="width: 85px; padding: 3px 8px; background: #0f131f; border: 1px solid var(--border); color: #fff; border-radius: 6px; font-size: 0.85rem;" onchange="updateStationFee(this.value)" />
         <span style="font-size: 0.8rem; color: var(--text-muted);">(Set 0 if crafting on your private island)</span>
       </div>
+    </div>
+
+    <!-- Quick Filters for Enchanting -->
+    <div id="quick-enchanting" class="quick-pills" style="display: none; flex-wrap: wrap; gap: 6px;">
+      <span class="filter-label" style="color: #c4b5fd;">🔮 Step:</span>
+      <button class="pill-btn active" onclick="setEnchantStep('all', this)">All Steps</button>
+      <button class="pill-btn" onclick="setEnchantStep('0->1', this)">🟢 .0 ➜ .1 (Runes)</button>
+      <button class="pill-btn" onclick="setEnchantStep('1->2', this)">🔵 .1 ➜ .2 (Souls)</button>
+      <button class="pill-btn" onclick="setEnchantStep('2->3', this)">🟣 .2 ➜ .3 (Relics)</button>
+      <button class="pill-btn" onclick="setEnchantStep('0->2', this)">⚡ .0 ➜ .2 (Direct)</button>
+      <button class="pill-btn" onclick="setEnchantStep('0->3', this)">🔥 .0 ➜ .3 (Full)</button>
+      <span class="filter-label" style="margin-left: 10px; color: #93c5fd;">Slot:</span>
+      <button class="pill-btn active" onclick="setEnchantSlot('all', this)">All Slots</button>
+      <button class="pill-btn" onclick="setEnchantSlot('Bag', this)">🎒 Bags</button>
+      <button class="pill-btn" onclick="setEnchantSlot('Weapon', this)">⚔️ Weapons</button>
+      <button class="pill-btn" onclick="setEnchantSlot('Armor', this)">🛡️ Armor</button>
+      <button class="pill-btn" onclick="setEnchantSlot('Cape', this)">🧣 Capes</button>
+      <button class="pill-btn" onclick="setEnchantSlot('Helmet', this)">🪖 Helmets</button>
+      <button class="pill-btn" onclick="setEnchantSlot('Boots', this)">🥾 Boots</button>
+      <button class="pill-btn" onclick="setEnchantSlot('Off-hand', this)">🛡️ Off-hands</button>
+      <span class="filter-label" style="margin-left: 10px; color: #a7f3d0;">Profit:</span>
+      <button class="pill-btn active" onclick="setEnchantStatus('profitable', this)">🟢 Profitable Only</button>
+      <button class="pill-btn" onclick="setEnchantStatus('high', this)">🔥 High Margin (&ge;20%)</button>
+      <button class="pill-btn" onclick="setEnchantStatus('all', this)">All Deals</button>
     </div>
 
 
@@ -1057,6 +1114,62 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </table>
   </div>
 
+  <!-- VIEW: ENCHANTING -->
+  <div id="view-enchanting" style="display: none;">
+    <!-- Live Artifact Materials Ticker Card -->
+    <div style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.15rem;">🔮</span>
+          <div>
+            <strong style="color: #c4b5fd; font-size: 0.94rem;">Artifact Foundry Materials (Live Market Prices):</strong>
+            <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 1px;">Live scanned from your local sniffer / AODP. Click ✏️ on any rune/soul/relic to override price.</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <span style="font-size: 0.8rem; color: #cbd5e1; font-weight: 600;">⚡ Mass Batch Size:</span>
+          <div class="batch-selector" style="display: inline-flex; gap: 4px;">
+            <button class="pill-btn batch-btn active" onclick="setEnchantBatch(10, this)">10x</button>
+            <button class="pill-btn batch-btn" onclick="setEnchantBatch(25, this)">25x</button>
+            <button class="pill-btn batch-btn" onclick="setEnchantBatch(50, this)">50x</button>
+            <button class="pill-btn batch-btn" onclick="setEnchantBatch(100, this)">100x</button>
+            <input id="custom-batch-input" type="number" min="1" max="9999" placeholder="Custom" style="width: 70px; padding: 2px 8px; font-size: 0.78rem; background: #0f172a; border: 1px solid #475569; border-radius: 4px; color: #f8fafc;" onchange="setEnchantBatch(this.value, null)">
+          </div>
+        </div>
+      </div>
+      <!-- Material price chips grid -->
+      <div id="artifact-mats-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;">
+        <!-- Populated dynamically by renderArtifactMats() -->
+      </div>
+    </div>
+
+    <!-- Enchanting Table -->
+    <table id="enchanting-table">
+      <thead>
+        <tr>
+          <th onclick="sortEnchanting('is_profitable')">Rating</th>
+          <th onclick="sortEnchanting('item_name')">Item</th>
+          <th onclick="sortEnchanting('item_type')">Slot</th>
+          <th onclick="sortEnchanting('step_label')">Enchant Step</th>
+          <th>Required Materials (Foundry)</th>
+          <th class="num" onclick="sortEnchanting('base_item_price', true)">Base Buy Cost</th>
+          <th class="num" onclick="sortEnchanting('enchant_mat_total_cost', true)">Mats Cost</th>
+          <th class="num" onclick="sortEnchanting('total_cost', true)" title="Base Item Buy Cost + Total Materials Cost">Total Cost 💰</th>
+          <th>Sell City</th>
+          <th class="num" onclick="sortEnchanting('sell_price', true)">Enchanted Sell Price</th>
+          <th class="num" onclick="sortEnchanting('profit_per_item', true)">Profit / Item</th>
+          <th class="num" onclick="sortEnchanting('margin_pct', true)">ROI Margin</th>
+          <th class="num" onclick="sortEnchanting('mass_profit', true)" id="th-mass-profit">Mass Profit (10x) ⚡</th>
+          <th class="num" onclick="sortEnchanting('data_age_minutes', true)">Data Age</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="enchanting-body">
+        <tr><td colspan="15" style="text-align: center; padding: 28px; color: var(--text-muted);">Loading live enchanting opportunities...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <!-- VIEW 3: LIVE SCANNED PRICES -->
   <div id="view-prices" style="display: none;">
     <table id="prices-table">
@@ -1227,6 +1340,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let blackmarketData = [];
     let craftingData = [];
     let focusCraftingData = [];
+    let enchantingData = [];
+    let artifactMatsData = {};
     let pricesData = [];
     
     // Performance: Pagination & Debounce
@@ -1239,6 +1354,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let bmQuickFilter = 'all';
     let craftCategoryFilter = 'all';
     let isFocusMode = false;
+    let enchantBatchSize = 10;
+    let enchantStepFilter = 'all';
+    let enchantSlotFilter = 'all';
+    let enchantStatusFilter = 'profitable';
 
     // Albion Analyser features: Mount capacity, Station tax fee, and Watchlist
     let selectedMountCap = parseFloat(localStorage.getItem('albion_mount_cap') || '1607');
@@ -1252,6 +1371,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let sortAscBm = false;
     let sortKeyCrafting = 'profit_per_item';
     let sortAscCrafting = false;
+    let sortKeyEnchant = 'profit_per_item';
+    let sortAscEnchant = false;
     let sortKeyWatchlist = 'score';
     let sortAscWatchlist = false;
 
@@ -1521,6 +1642,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       flipQuickFilter = 'all';
       bmQuickFilter = 'all';
       craftCategoryFilter = 'all';
+      enchantStepFilter = 'all';
+      enchantSlotFilter = 'all';
+      enchantStatusFilter = 'profitable';
       document.querySelectorAll('.quick-pills .pill-btn').forEach(btn => btn.classList.remove('active'));
       const flipPill = document.querySelector('#quick-flips .pill-btn');
       if (flipPill) flipPill.classList.add('active');
@@ -1528,6 +1652,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       if (bmPill) bmPill.classList.add('active');
       const craftPill = document.querySelector('#quick-crafting .pill-btn');
       if (craftPill) craftPill.classList.add('active');
+      const enchPill = document.querySelector('#quick-enchanting .pill-btn');
+      if (enchPill) enchPill.classList.add('active');
       currentPage = 1;
       renderCurrentView();
     }
@@ -1603,6 +1729,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       document.getElementById('tab-flips').className = 'tab-btn' + (tab === 'flips' ? ' active' : '');
       document.getElementById('tab-blackmarket').className = 'tab-btn' + (tab === 'blackmarket' ? ' active' : '');
       document.getElementById('tab-crafting').className = 'tab-btn' + (tab === 'crafting' ? ' active' : '');
+      const tabEnchant = document.getElementById('tab-enchanting');
+      if (tabEnchant) tabEnchant.className = 'tab-btn' + (tab === 'enchanting' ? ' active' : '');
       const tabWatch = document.getElementById('tab-watchlist');
       if (tabWatch) tabWatch.className = 'tab-btn' + (tab === 'watchlist' ? ' active' : '');
       document.getElementById('tab-prices').className = 'tab-btn' + (tab === 'prices' ? ' active' : '');
@@ -1610,6 +1738,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       document.getElementById('view-flips').style.display = (tab === 'flips') ? 'block' : 'none';
       document.getElementById('view-blackmarket').style.display = (tab === 'blackmarket') ? 'block' : 'none';
       document.getElementById('view-crafting').style.display = (tab === 'crafting') ? 'block' : 'none';
+      const viewEnchant = document.getElementById('view-enchanting');
+      if (viewEnchant) viewEnchant.style.display = (tab === 'enchanting') ? 'block' : 'none';
       const viewWatch = document.getElementById('view-watchlist');
       if (viewWatch) viewWatch.style.display = (tab === 'watchlist') ? 'block' : 'none';
       document.getElementById('view-prices').style.display = (tab === 'prices') ? 'block' : 'none';
@@ -1620,7 +1750,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       document.getElementById('quick-flips').style.display = (tab === 'flips') ? 'flex' : 'none';
       document.getElementById('quick-blackmarket').style.display = (tab === 'blackmarket') ? 'flex' : 'none';
       document.getElementById('quick-crafting').style.display = (tab === 'crafting') ? 'flex' : 'none';
-
+      const quickEnchant = document.getElementById('quick-enchanting');
+      if (quickEnchant) quickEnchant.style.display = (tab === 'enchanting') ? 'flex' : 'none';
 
       // Update City Filter label and visibility depending on active tab
       const buyCityLabel = document.getElementById('filter-buy-city-label');
@@ -1634,6 +1765,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (sellCityCont) sellCityCont.style.display = 'none';
       } else if (tab === 'crafting') {
         if (buyCityLabel) buyCityLabel.textContent = 'Craft City:';
+        if (sellCityCont) sellCityCont.style.display = 'block';
+      } else if (tab === 'enchanting') {
+        if (buyCityLabel) buyCityLabel.textContent = 'Foundry City:';
         if (sellCityCont) sellCityCont.style.display = 'block';
       } else {
         if (buyCityLabel) buyCityLabel.textContent = 'Buy City:';
@@ -2278,10 +2412,268 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }).join('');
     }
 
+    function setEnchantBatch(qty, btn) {
+      const q = Math.max(1, parseInt(qty) || 10);
+      enchantBatchSize = q;
+      document.querySelectorAll('.batch-btn').forEach(b => b.classList.remove('active'));
+      if (btn) {
+        btn.classList.add('active');
+        const customInput = document.getElementById('custom-batch-input');
+        if (customInput) customInput.value = '';
+      }
+      const thMass = document.getElementById('th-mass-profit');
+      if (thMass) thMass.innerHTML = `Mass Profit (${enchantBatchSize}x) ⚡`;
+      renderEnchanting();
+    }
+
+    function setEnchantStep(step, btn) {
+      enchantStepFilter = step;
+      document.querySelectorAll('#quick-enchanting button').forEach(b => {
+        if (b.getAttribute('onclick') && b.getAttribute('onclick').includes('setEnchantStep')) {
+          b.classList.remove('active');
+        }
+      });
+      if (btn) btn.classList.add('active');
+      currentPage = 1;
+      renderEnchanting();
+    }
+
+    function setEnchantSlot(slot, btn) {
+      enchantSlotFilter = slot;
+      document.querySelectorAll('#quick-enchanting button').forEach(b => {
+        if (b.getAttribute('onclick') && b.getAttribute('onclick').includes('setEnchantSlot')) {
+          b.classList.remove('active');
+        }
+      });
+      if (btn) btn.classList.add('active');
+      currentPage = 1;
+      renderEnchanting();
+    }
+
+    function setEnchantStatus(status, btn) {
+      enchantStatusFilter = status;
+      document.querySelectorAll('#quick-enchanting button').forEach(b => {
+        if (b.getAttribute('onclick') && b.getAttribute('onclick').includes('setEnchantStatus')) {
+          b.classList.remove('active');
+        }
+      });
+      if (btn) btn.classList.add('active');
+      currentPage = 1;
+      renderEnchanting();
+    }
+
+    function sortEnchanting(key, isNum = false) {
+      if (sortKeyEnchant === key) {
+        sortAscEnchant = !sortAscEnchant;
+      } else {
+        sortKeyEnchant = key;
+        sortAscEnchant = !isNum;
+      }
+      renderEnchanting();
+    }
+
+    function renderArtifactMats() {
+      const grid = document.getElementById('artifact-mats-grid');
+      if (!grid) return;
+      if (!artifactMatsData || Object.keys(artifactMatsData).length === 0) {
+        grid.innerHTML = '<div style="color: #64748b; font-size: 0.8rem; padding: 4px;">Awaiting live artifact material prices... (Will populate automatically upon market scan)</div>';
+        return;
+      }
+
+      const matsList = Object.values(artifactMatsData);
+      matsList.sort((a, b) => {
+        if (a.tier !== b.tier) return a.tier - b.tier;
+        const typeOrder = { rune: 1, soul: 2, relic: 3 };
+        return (typeOrder[a.type] || 4) - (typeOrder[b.type] || 4);
+      });
+
+      grid.innerHTML = matsList.map(m => {
+        const typeColors = {
+          rune: '#4ade80',
+          soul: '#60a5fa',
+          relic: '#c084fc',
+        };
+        const dotColor = typeColors[m.type] || '#cbd5e1';
+        const sourceBadge = (m.source === 'live')
+          ? '<span class="badge badge-sniffer" style="padding:1px 5px; font-size:0.65rem;" title="Live direct packet scan">⚡ Live</span>'
+          : ((m.source === 'override') ? '<span class="badge" style="background:#451a03; color:#fde047; padding:1px 5px; font-size:0.65rem;">✏️ Custom</span>' : '');
+
+        const safeMatName = escapeHtml(m.name);
+        return `
+          <div class="mat-chip" title="${safeMatName} (${m.id}) in ${m.city || 'Market'}">
+            <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
+              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${dotColor}; flex-shrink:0;"></span>
+              <span class="mat-chip-name" style="white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">T${m.tier} ${m.type.toUpperCase()}</span>
+              ${sourceBadge}
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span class="mat-chip-price">${m.price ? m.price.toLocaleString() : '-'}s</span>
+              <button class="btn-edit-price" onclick="promptOverridePrice('${m.id}', '${m.city || 'Martlock'}', 1, ${m.price || 0})" title="Override price for ${safeMatName}">✏️</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function passesEnchantFilters(e) {
+      const search = (document.getElementById('search-box')?.value || '').toLowerCase().trim();
+      const tierFilter = document.getElementById('filter-tier')?.value || 'all';
+      const cityFilter = document.getElementById('filter-buy-city')?.value || 'all';
+      const sellCityFilter = document.getElementById('filter-sell-city')?.value || 'all';
+
+      if (search) {
+        const name = (e.item_name || '').toLowerCase();
+        const id = (e.base_item_id || '').toLowerCase();
+        const tid = (e.target_item_id || '').toLowerCase();
+        const mat = (e.enchant_mat_name || '').toLowerCase();
+        if (!name.includes(search) && !id.includes(search) && !tid.includes(search) && !mat.includes(search)) {
+          return false;
+        }
+      }
+
+      if (tierFilter !== 'all' && String(e.tier) !== tierFilter) {
+        return false;
+      }
+
+      if (cityFilter !== 'all' && e.city.toLowerCase() !== cityFilter.toLowerCase()) {
+        return false;
+      }
+
+      if (sellCityFilter !== 'all' && e.sell_city.toLowerCase() !== sellCityFilter.toLowerCase()) {
+        return false;
+      }
+
+      if (enchantStepFilter !== 'all') {
+        const step = `${e.from_enchant}->${e.to_enchant}`;
+        if (step !== enchantStepFilter) return false;
+      }
+
+      if (enchantSlotFilter !== 'all') {
+        if (enchantSlotFilter === 'Weapon') {
+          if (!e.item_type.includes('Weapon')) return false;
+        } else if (e.item_type !== enchantSlotFilter) {
+          return false;
+        }
+      }
+
+      if (enchantStatusFilter === 'profitable') {
+        if (!e.is_profitable) return false;
+      } else if (enchantStatusFilter === 'high') {
+        if (!e.is_profitable || e.margin_pct < 20) return false;
+      }
+
+      return true;
+    }
+
+    function renderEnchanting() {
+      renderArtifactMats();
+      const tbody = document.getElementById('enchanting-body');
+      if (!tbody) return;
+
+      let filtered = enchantingData.filter(passesEnchantFilters);
+
+      filtered.sort((a, b) => {
+        let va, vb;
+        if (sortKeyEnchant === 'mass_profit') {
+          va = (Number(a.profit_per_item) || 0) * enchantBatchSize;
+          vb = (Number(b.profit_per_item) || 0) * enchantBatchSize;
+        } else {
+          va = a[sortKeyEnchant];
+          vb = b[sortKeyEnchant];
+        }
+        if (typeof va === 'string') va = va.toLowerCase();
+        if (typeof vb === 'string') vb = vb.toLowerCase();
+        if (va < vb) return sortAscEnchant ? -1 : 1;
+        if (va > vb) return sortAscEnchant ? 1 : -1;
+        return 0;
+      });
+
+      const totalItems = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+      if (currentPage > totalPages) currentPage = totalPages;
+
+      const startIndex = (currentPage - 1) * pageSize;
+      const pageSlice = filtered.slice(startIndex, startIndex + pageSize);
+
+      updatePagination(totalItems, startIndex, pageSlice.length, totalPages);
+
+      if (pageSlice.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="15" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
+          'No enchanting opportunities match your current filters.<br><small style="margin-top:8px; display:inline-block; color:#64748b;">(Try selecting "All Deals" or switching Enchant Step)</small>' +
+          '</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = pageSlice.map(e => {
+        const isHigh = (e.margin_pct >= 25 && e.profit_per_item >= 4000);
+        let ratingBadge = '';
+        if (isHigh) {
+          ratingBadge = `<span class="badge" style="background:#064e3b; color:#34d399; font-weight:700;">🔥 MASS PROFIT</span>`;
+        } else if (e.is_profitable) {
+          ratingBadge = `<span class="badge" style="background:#14532d; color:#86efac; font-weight:700;">🟢 PROFITABLE</span>`;
+        } else if (e.profit_per_item === 0) {
+          ratingBadge = `<span class="badge" style="background:#334155; color:#94a3b8;">⚪ BREAK-EVEN</span>`;
+        } else {
+          ratingBadge = `<span class="badge" style="background:#450a0a; color:#fca5a5;">❌ LOSS</span>`;
+        }
+
+        const massProfitVal = Math.round(e.profit_per_item * enchantBatchSize);
+        const massProfitDisplay = `<span class="num ${massProfitVal > 0 ? 'profit-val' : 'stale-data'}" style="font-weight:800;">${massProfitVal > 0 ? '+' : ''}${massProfitVal.toLocaleString()}</span> <small style="color:#64748b;">(${enchantBatchSize}x)</small>`;
+
+        const safeItemName = (e.item_name || e.base_item_id).replace(/'/g, "\\'");
+        const primaryMatName = (e.enchant_mat_name || '').split(' (')[0].replace(/'/g, "\\'");
+
+        const isBm = (e.sell_city === 'Black Market');
+        const sellCityDisplay = isBm 
+          ? `<strong style="color: #60a5fa;">🏴‍☠️ Black Market</strong>` 
+          : `<strong>${e.sell_city}</strong>`;
+
+        return `
+          <tr>
+            <td>${ratingBadge}</td>
+            <td>${renderItemCell(e.base_item_id, e.item_name, 1)}</td>
+            <td><span class="badge badge-tier">${e.item_type}</span></td>
+            <td><span class="badge" style="background:#1e1b4b; color:#c4b5fd; font-weight:700;">${e.step_label}</span></td>
+            <td>
+              <div style="font-size:0.83rem; color:#f8fafc; font-weight:600;">${escapeHtml(e.enchant_mat_name)}</div>
+            </td>
+            <td class="num">${e.base_item_price.toLocaleString()} <small style="color:#94a3b8;">(${e.city})</small></td>
+            <td class="num">${e.enchant_mat_total_cost.toLocaleString()}</td>
+            <td class="num" style="font-weight:700; color:#e2e8f0;">${e.total_cost.toLocaleString()}</td>
+            <td>${sellCityDisplay}</td>
+            <td class="num">
+              ${e.sell_price.toLocaleString()}
+              <button class="btn-edit-price" onclick="promptOverridePrice('${e.target_item_id}', '${e.sell_city}', 1, ${e.sell_price})" title="Override price if different in-game">✏️</button>
+            </td>
+            <td class="num ${e.is_profitable ? 'profit-val' : 'stale-data'}" style="font-weight:700;">
+              ${e.profit_per_item > 0 ? '+' : ''}${e.profit_per_item.toLocaleString()}
+            </td>
+            <td class="num ${e.is_profitable ? 'margin-val' : 'stale-data'}">
+              ${e.margin_pct > 0 ? '+' : ''}${e.margin_pct.toFixed(1)}%
+            </td>
+            <td class="num">${massProfitDisplay}</td>
+            <td class="num">${renderAgeCell(e, isBm)}</td>
+            <td style="white-space: nowrap;">
+              <button class="btn btn-secondary" style="padding: 3px 7px; font-size: 0.73rem;" onclick="copyItemName('${safeItemName}', this)" title="Copy Item Search Name">
+                📋 Item
+              </button>
+              <button class="btn btn-secondary" style="padding: 3px 7px; font-size: 0.73rem; margin-left:3px;" onclick="copyItemName('${primaryMatName}', this)" title="Copy Materials In-Game Search Name">
+                📋 Mats
+              </button>
+              <button class="btn-fulfill" style="margin-left: 3px;" onclick="markOrderFulfilled('${e.target_item_id}', '${e.sell_city}', 1, this)" title="Order gone in-game?">
+                ✓
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
     function renderCurrentView() {
       if (currentTab === 'flips') renderFlips();
       else if (currentTab === 'blackmarket') renderBlackMarket();
       else if (currentTab === 'crafting') renderCrafting();
+      else if (currentTab === 'enchanting') renderEnchanting();
       else if (currentTab === 'watchlist') renderWatchlist();
       else renderPrices();
     }
@@ -2349,6 +2741,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         blackmarketData = data.blackmarket || [];
         craftingData = data.crafting || [];
         focusCraftingData = data.focus_crafting || [];
+        enchantingData = data.enchanting || [];
+        artifactMatsData = data.artifact_materials || {};
         pricesData = data.recent_prices || [];
 
         // Update Black Market tab badge
@@ -2360,6 +2754,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             bmBadge.innerHTML = `🟢 ${bmNewCount} New`;
           } else {
             bmBadge.style.display = 'none';
+          }
+        }
+
+        // Update Enchanting tab badge
+        const enchBadge = document.getElementById('enchant-badge');
+        const enchCount = data.enchant_count || 0;
+        if (enchBadge) {
+          if (enchCount > 0) {
+            enchBadge.style.display = 'inline-block';
+            enchBadge.textContent = enchCount;
+          } else {
+            enchBadge.style.display = 'none';
           }
         }
 
@@ -2781,8 +3187,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       } else if (e.key === '3') {
         switchTab('crafting');
       } else if (e.key === '4') {
-        switchTab('watchlist');
+        switchTab('enchanting');
       } else if (e.key === '5') {
+        switchTab('watchlist');
+      } else if (e.key === '6') {
         switchTab('prices');
       } else if (e.key === 'Escape') {
         closeOverridesModal();
@@ -2882,6 +3290,8 @@ class FlipDataStore:
         self._previous_bm_keys: set[tuple[str, int, int]] = set()
         self.crafting: list[dict[str, Any]] = []
         self.focus_crafting: list[dict[str, Any]] = []
+        self.enchanting: list[dict[str, Any]] = []
+        self.artifact_materials: dict[str, Any] = {}
         self.recent_prices: list[dict[str, Any]] = []
         self.refresh_callback: Callable[[], Any] | None = None
         self.fulfilled_orders: dict[tuple[str, str, int], datetime] = {}
@@ -3400,6 +3810,56 @@ class FlipDataStore:
                     "item_value": get_item_value(c.item_id),
                 })
 
+        # Enchanting & Artifact Foundry calculations
+        serialized_enchanting: list[dict[str, Any]] = []
+        artifact_mats_dict: dict[str, Any] = {}
+        if clean_prices:
+            enchant_ops, artifact_mats_dict = analyze_enchanting(
+                prices=clean_prices,
+                config=config,
+                now=now,
+                fulfilled_orders=self.fulfilled_orders,
+                price_overrides=self.price_overrides,
+                item_names=ITEM_NAMES,
+            )
+            for e in enchant_ops[:1000]:
+                is_e_sniffer = False
+                e_sniffer_age_secs = None
+                for scan_key, scan_time in self.sniffer_scans.items():
+                    if (scan_key[0] in (e.base_item_id, e.target_item_id) or "RUNE" in scan_key[0] or "SOUL" in scan_key[0] or "RELIC" in scan_key[0]) and (scan_key[1] == e.city or scan_key[1] == e.sell_city):
+                        age_s = max(0.0, (now - scan_time).total_seconds())
+                        if age_s < 600:
+                            is_e_sniffer = True
+                            if e_sniffer_age_secs is None or age_s < e_sniffer_age_secs:
+                                e_sniffer_age_secs = round(age_s)
+
+                serialized_enchanting.append({
+                    "base_item_id": e.base_item_id,
+                    "target_item_id": e.target_item_id,
+                    "item_name": e.item_name,
+                    "tier": e.tier,
+                    "from_enchant": e.from_enchant,
+                    "to_enchant": e.to_enchant,
+                    "step_label": f"{e.tier}.{e.from_enchant} ➔ {e.tier}.{e.to_enchant}",
+                    "city": e.city,
+                    "sell_city": e.sell_city,
+                    "base_item_price": e.base_item_price,
+                    "enchant_mat_id": e.enchant_mat_id,
+                    "enchant_mat_name": e.enchant_mat_name,
+                    "enchant_mat_qty": e.enchant_mat_qty,
+                    "enchant_mat_unit_price": e.enchant_mat_unit_price,
+                    "enchant_mat_total_cost": e.enchant_mat_total_cost,
+                    "total_cost": e.total_cost,
+                    "sell_price": e.sell_price,
+                    "net_revenue": e.net_revenue,
+                    "profit_per_item": e.profit_per_item,
+                    "margin_pct": e.margin_pct,
+                    "is_profitable": e.is_profitable,
+                    "item_type": e.item_type,
+                    "data_age_minutes": round(e.data_age_minutes, 1),
+                    "is_live_sniffer": is_e_sniffer,
+                    "sniffer_age_seconds": e_sniffer_age_secs,
+                })
 
         with self._lock:
             self.server = server
@@ -3410,6 +3870,8 @@ class FlipDataStore:
             self.bm_recent_arrivals = sorted(recent_bm_arrivals, key=lambda x: x["age"])[:6]
             self.crafting = serialized_crafting
             self.focus_crafting = serialized_focus_crafting
+            self.enchanting = serialized_enchanting
+            self.artifact_materials = artifact_mats_dict
             self.recent_prices = serialized_prices
 
     def get_data(self) -> dict[str, Any]:
@@ -3437,6 +3899,8 @@ class FlipDataStore:
             sniffer_active = (time.time() - self.sniffer_last_timestamp < 180) if self.sniffer_last_timestamp else False
             secs_since = round(time.time() - self.sniffer_last_timestamp) if self.sniffer_last_timestamp else None
 
+            profitable_enchant_count = len([e for e in self.enchanting if e.get("is_profitable")])
+
             return {
                 "server": self.server,
                 "last_refresh": self.last_refresh,
@@ -3453,6 +3917,9 @@ class FlipDataStore:
                 "bm_recent_arrivals": list(self.bm_recent_arrivals),
                 "crafting": list(self.crafting),
                 "focus_crafting": list(self.focus_crafting),
+                "enchanting": list(self.enchanting),
+                "enchant_count": profitable_enchant_count,
+                "artifact_materials": self.artifact_materials,
                 "recent_prices": list(self.recent_prices),
                 "overrides_count": len(self.fulfilled_orders) + len(self.price_overrides),
                 "overrides": overrides_list,

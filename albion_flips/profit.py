@@ -102,3 +102,64 @@ def calculate_station_usage_fee(item_value: float, fee_per_100_nutrition: float)
     return float(item_value * 0.001125 * fee_per_100_nutrition)
 
 
+def calculate_enchanting_materials(item_id: str) -> tuple[str, int]:
+    """Returns (slot_type, materials_required_per_enchant_level) for an item in Albion Online.
+
+    Rules in Albion Online:
+    - Two-Handed Weapons: 192 materials (Runes, Souls, Relics) per enchant level
+    - One-Handed Weapons: 144 materials per enchant level
+    - Armor (Chest) & Bags: 96 materials per enchant level
+    - Helmets, Boots, Capes, Off-hands: 48 materials per enchant level
+    """
+    clean_id = item_id.split("@")[0].upper()
+    if "_2H_" in clean_id:
+        return "2H Weapon", 192
+    elif "_MAIN_" in clean_id:
+        return "1H Weapon", 144
+    elif "_ARMOR_" in clean_id:
+        return "Armor", 96
+    elif "_BAG" in clean_id:
+        return "Bag", 96
+    elif "_HEAD_" in clean_id:
+        return "Helmet", 48
+    elif "_SHOES_" in clean_id:
+        return "Boots", 48
+    elif "_CAPE" in clean_id:
+        return "Cape", 48
+    elif "_OFF_" in clean_id:
+        return "Off-hand", 48
+    return "Equipment", 48
+
+
+def calculate_enchanting_profit(
+    base_item_price: int,
+    enchant_mat_cost: int,
+    sell_price: int,
+    tax_rate: float,
+    setup_fee_rate: float = 0.025,
+    is_buy_order_exit: bool = False,
+) -> tuple[int, int, float]:
+    """Calculates enchanting profit, net revenue, and margin percentage.
+
+    Formula:
+        total_cost = base_item_price + enchant_mat_cost
+        if is_buy_order_exit (e.g. instant sell to Black Market or city buy order):
+            net_revenue = int(sell_price * (1.0 - tax_rate))
+        else (regular market sell order):
+            net_revenue = int(sell_price * (1.0 - tax_rate - setup_fee_rate))
+        profit = net_revenue - total_cost
+        margin_pct = (profit / total_cost * 100.0) if total_cost > 0 else 0.0
+
+    Returns:
+        (total_cost, profit, margin_pct)
+    """
+    total_cost = base_item_price + enchant_mat_cost
+    if is_buy_order_exit:
+        net_revenue = int(sell_price * (1.0 - tax_rate))
+    else:
+        net_revenue = int(sell_price * (1.0 - tax_rate - setup_fee_rate))
+    profit = net_revenue - total_cost
+    margin_pct = (profit / total_cost * 100.0) if total_cost > 0 else 0.0
+    return total_cost, profit, margin_pct
+
+
