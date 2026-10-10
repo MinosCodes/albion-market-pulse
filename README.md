@@ -8,13 +8,24 @@ A real-time market analysis tool and interactive web dashboard for **Albion Onli
 
 ## 🌟 Key Features
 
+- 💻 **Native Desktop Companion App**: Launches in a standalone desktop window (Microsoft Edge WebView2 on Windows 10/11, WebKit on macOS) without browser tabs or address bar clutter. Launch with 1-click via `run_desktop.bat` (Windows), `run_desktop.sh` (macOS/Linux), or `python run_desktop.py`.
+- ⚖️ **Transport Weight & Mount Carry Calculator**:
+  - **Silver / kg Density**: Shows net profit per kilogram so you can pack maximum value into every transport run.
+  - **Mount Presets**: T3–T8 Transport Oxen (672kg – 4,923kg), T5 Armored Horse (800kg - Fast/Safe), T7 Pest Lizard (1,100kg), T8 Grizzly Bear (2,500kg - Tank), or Custom kg.
+  - **Full Trip Profit**: Automatically calculates how many units fit on your mount and total trip earnings.
+  - **CLI Support**: Rank trade routes by density: `python -m albion_flips.cli --sort density`.
+- 📋 **1-Click Copy In-Game Search Name**: Click the 📋 icon next to any item in Flips, Black Market, Refining, or Crafting to copy the clean name directly to your clipboard. Tab into Albion Online, hit `Ctrl+V` in the market search box, and trade immediately.
+- ⭐ **Watchlist / Pinned Items**: Click the ★ star button on any item to pin it to your personal Watchlist tab for fast daily tracking across all Royal Cities and the Black Market.
+- 🪙 **Station Usage Fee (Nutrition Tax)**: Enter the current city plot fee per 100 nutrition (e.g. 500 silver / 100 nutrition, or 0 on personal island) to view exact net crafting and refining margins.
 - 🏙️ **City-to-City Flips**: Detect profitable trade routes across Bridgewatch, Fort Sterling, Lymhurst, Martlock, Thetford, and Caerleon.
 - 🏴‍☠️ **Black Market Arbitrage**: Find high-demand items to buy in Royal cities and flip directly to Caerleon's Black Market buy orders.
   - **Live Arrival Feed**: Badges items that were recently scanned (`⚡ JUST IN`, `🟢 RECENT SCAN`).
   - **Filter by Freshness**: Quickly isolate fresh market orders (`<15m` old) before other players fill them.
-- ⚒️ **Crafting Profit Calculator**: Real-time margin calculations factoring in local city return rate bonuses (15.2% Royal / 24.8% Caerleon) and focus crafting (43.5% / 47.9%).
+- ⚒️ **Crafting Profit Calculator**: Real-time margin calculations factoring in local city return rate bonuses (15.2% Royal / 24.8% Caerleon), focus crafting (43.5% / 47.9%), and station fees.
+- ⚡ **Live Network Sniffer Integration**: Built-in status indicator and guide for pairing with the open-source `albiondata-client` for real-time 0-second market updates.
 - 🌐 **Interactive Web Dashboard**: Fast, responsive dark-mode dashboard running locally at `http://localhost:8765`.
 - ⚙️ **Configurable Tax & Fees**: Accurately factors in Premium tax (4%), non-premium tax (8%), and listing setup fees (2.5%).
+
 
 ---
 
@@ -94,17 +105,17 @@ Open `config.json` and adjust:
 - `"server"`: Set to `"europe"` (Albion Europe), `"west"` (Albion Americas), or `"east"` (Albion Asia).
 - `"premium"`: Set to `true` if your character has active Premium (reduces tax to 4%).
 
-### 3. Run the Analyzer & Web Dashboard
+### 3. Run the Analyzer & Desktop Companion App
 
-#### Option A: 1-Click Desktop App (Zero-Config)
-#### Option A: 1-Click Desktop App (Zero-Config)
+#### Option A: 1-Click Desktop App (Native Window)
 - **Windows**:
-  - Run **`Setup-Windows.bat`** once. It automatically configures Python, downloads the Albion Data Client if missing, and pins the **`Albion Market Pulse`** shortcut to your Desktop!
-  - Double-click **`Albion Market Pulse`** on your Desktop anytime to launch both the live monitor and the Data Client automatically.
-- **macOS**:
-  - Double-click **`Albion Market Pulse.app`** on your Desktop. It launches the service and automatically detects/starts the live packet sniffer.
+  - Double-click **`run_desktop.bat`** (or `python run_desktop.py`).
+  - Launches in a standalone Microsoft Edge WebView2 desktop window without browser tabs!
+- **macOS / Linux**:
+  - Run **`./run_desktop.sh`** (or `python3 run_desktop.py`).
+  - Launches in a native WebKit desktop window.
 
-#### Option B: Terminal Command
+#### Option B: Terminal Command (CLI or Web Dashboard)
 To launch continuous watch mode with the interactive web dashboard from your command line:
 
 ```bash
@@ -114,9 +125,17 @@ python -m albion_flips.cli --watch --web
 Open your browser to:
 👉 **[http://localhost:8765](http://localhost:8765)**
 
+To launch directly as a desktop window via CLI:
+```bash
+python -m albion_flips.cli --desktop
+```
+
 To run a single terminal scan without the web server:
 ```bash
 python -m albion_flips.cli --once
+
+# Rank by Silver / kg carry density (for mount transport runs):
+python -m albion_flips.cli --once --sort density
 
 # Rank by estimated daily silver turnover (profit × sales volume):
 python -m albion_flips.cli --once --sort daily
@@ -127,6 +146,7 @@ python -m albion_flips.cli --once --skip-dead
 # Filter for liquid items only (≥ 10 sold per day) sorted by volume:
 python -m albion_flips.cli --once --min-volume 10 --sort volume
 ```
+
 
 ---
 

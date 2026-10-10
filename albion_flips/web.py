@@ -12,8 +12,10 @@ from typing import Any, Callable, Sequence
 from albion_flips.analyzer import analyze_crafting, calculate_deal_score, deduplicate_prices
 from albion_flips.config import AppConfig
 from albion_flips.models import FlipOpportunity, PriceRecord
+from albion_flips.weights import MOUNT_CAPACITIES, get_item_value, get_item_weight
 
 logger = logging.getLogger(__name__)
+
 
 # Load item name dictionary if available
 ITEM_NAMES: dict[str, str] = {}
@@ -641,9 +643,90 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       width: 90%;
       max-height: 80vh;
       overflow-y: auto;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    /* Star / Watchlist & 1-Click Copy */
+    .star-btn {
+      background: none;
+      border: none;
+      color: #64748b;
+      font-size: 1.15rem;
+      cursor: pointer;
+      padding: 0 4px;
+      line-height: 1;
+      transition: color 0.15s, transform 0.15s;
+    }
+    .star-btn:hover {
+      color: #fbbf24;
+      transform: scale(1.25);
+    }
+    .star-btn.starred {
+      color: #f59e0b;
+      text-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+    }
+    .btn-copy-name {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 4px;
+      font-size: 0.72rem;
+      padding: 1px 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.15s ease;
+    }
+    .btn-copy-name:hover {
+      background: rgba(59, 130, 246, 0.25);
+      border-color: var(--blue);
+      color: #ffffff;
+    }
+
+    /* Mount Carry Capacity Toolbar */
+    .mount-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      background: #141826;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      margin-bottom: 12px;
+      font-size: 0.85rem;
+    }
+    .mount-label {
+      font-weight: 700;
+      color: #fbbf24;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .mount-info {
+      color: var(--text-muted);
+      margin-right: 6px;
+    }
+
+    /* Sniffer Pill */
+    .sniffer-pill {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #34d399;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .sniffer-pill:hover {
+      background: rgba(16, 185, 129, 0.25);
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
     }
   </style>
+
 </head>
 <body>
   <div id="top-progress-bar"></div>
@@ -660,6 +743,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="status-badge">
         <span class="pulse-dot"></span>
         <span id="server-badge">Europe Live</span>
+      </div>
+      <div class="sniffer-pill" onclick="openSnifferModal()" title="View Live Network Sniffer Ingestion Guide">
+        <span>⚡ Sniffer: Ready</span>
+        <span style="opacity: 0.7;">ℹ️</span>
       </div>
       <div class="status-text">
         Last Refresh: <span id="last-refresh" style="color: var(--text); font-weight: 600;">Connecting...</span>
@@ -683,8 +770,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       🏴‍☠️ Black Market <span id="bm-badge" class="bm-pulse-badge" style="display: none;"></span>
     </button>
     <button id="tab-crafting" class="tab-btn" onclick="switchTab('crafting')">🔨 Crafting & Refining Profit</button>
+    <button id="tab-watchlist" class="tab-btn" onclick="switchTab('watchlist')">⭐ Watchlist <span id="watchlist-badge" class="badge" style="background:#f59e0b; color:#000; font-size:0.72rem; margin-left:4px; display:none;">0</span></button>
     <button id="tab-prices" class="tab-btn" onclick="switchTab('prices')">📡 Live Scanned Prices</button>
   </div>
+
 
   <div class="filter-panel">
     <!-- Quick Filters for Flips -->
@@ -733,7 +822,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <button class="pill-btn" onclick="setCraftFilter('Weapon', this)">⚔️ Weapons</button>
       <button class="pill-btn" onclick="setCraftFilter('Armor', this)">🛡️ Armors</button>
       <button id="btn-focus-toggle" class="pill-btn" style="margin-left: auto; border-color: var(--purple); color: #d8b4fe;" onclick="toggleFocusMode()">✨ Focus: OFF</button>
+      <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px; width: 100%;">
+        <span class="filter-label" style="color: #fbbf24;">🪙 Station Fee / 100 Nutrition:</span>
+        <input id="station-fee-input" type="number" value="500" min="0" max="2500" step="25" style="width: 85px; padding: 3px 8px; background: #0f131f; border: 1px solid var(--border); color: #fff; border-radius: 6px; font-size: 0.85rem;" onchange="updateStationFee(this.value)" />
+        <span style="font-size: 0.8rem; color: var(--text-muted);">(Set 0 if crafting on your private island)</span>
+      </div>
     </div>
+
 
     <div class="filter-row">
       <input type="text" id="search-box" class="search-input" placeholder="Search by name, tier (e.g. 6.2), or city..." oninput="onSearchInput()">
@@ -828,10 +923,30 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
       <button class="btn btn-secondary" onclick="resetFilters()">Reset Filters</button>
     </div>
+  </div>
 
+  <div class="mount-bar" id="mount-toolbar">
+    <span class="mount-label">⚖️ Transport Mount:</span>
+    <select id="mount-select" onchange="onMountChange(this.value)" style="background: #0f131f; color: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 0.85rem;">
+      <option value="1607">T5 Transport Ox (1,607 kg)</option>
+      <option value="672">T3 Transport Ox (672 kg)</option>
+      <option value="1075">T4 Transport Ox (1,075 kg)</option>
+      <option value="2364">T6 Transport Ox (2,364 kg)</option>
+      <option value="3425">T7 Transport Ox (3,425 kg)</option>
+      <option value="4923">T8 Transport Ox (4,923 kg)</option>
+      <option value="800">T5 Armored Horse (800 kg - Safe)</option>
+      <option value="1100">T7 Pest Lizard (1,100 kg - Fast)</option>
+      <option value="2500">T8 Grizzly Bear (2,500 kg - Tank)</option>
+      <option value="custom">Custom Weight...</option>
+    </select>
+    <input id="mount-custom" type="number" placeholder="kg" style="display:none; width: 85px; background: #0f131f; color: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 0.85rem;" onchange="onCustomMountChange(this.value)" />
+    <span class="mount-info">Max Load: <b id="mount-cap-disp" style="color: #60a5fa;">1,607</b> kg</span>
+    <button class="pill-btn" onclick="sortFlips('profit_per_kg', true)" title="Sort by Silver profit per Kilogram of weight">⚡ Sort by Silver/kg</button>
+    <button class="pill-btn" onclick="sortFlips('mount_trip', true)" title="Sort by Total Trip Profit for current mount load">💰 Sort by Mount Trip</button>
   </div>
 
   <!-- VIEW 1: FLIPS -->
+
   <div id="view-flips">
     <table id="flips-table">
       <thead>
@@ -847,6 +962,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <th class="num" onclick="sortFlips('profit_per_item', true)">Profit / Item</th>
           <th class="num" onclick="sortFlips('margin_pct', true)">ROI Margin</th>
           <th class="num" onclick="sortFlips('total_profit', true)">Total Profit</th>
+          <th class="num" onclick="sortFlips('profit_per_kg', true)" title="Silver profit per Kilogram of item weight">Silver / kg ⚖️</th>
+          <th class="num" onclick="sortFlips('mount_trip', true)" title="Total Trip Profit for current mount load">Mount Trip 💰</th>
           <th class="num" onclick="sortFlips('est_daily_profit', true)" title="Estimated daily silver turnover based on daily volume">Est. Daily Silver ⚡</th>
           <th class="num" onclick="sortFlips('avg_daily_volume', true)">Daily Vol</th>
           <th class="num" onclick="sortFlips('data_age_minutes', true)">Data Age</th>
@@ -855,7 +972,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </tr>
       </thead>
       <tbody id="flips-body">
-        <tr><td colspan="16" style="text-align: center; padding: 24px; color: var(--text-muted);">Connecting to analyzer backend...</td></tr>
+        <tr><td colspan="18" style="text-align: center; padding: 24px; color: var(--text-muted);">Connecting to analyzer backend...</td></tr>
       </tbody>
     </table>
   </div>
@@ -890,6 +1007,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <th class="num" onclick="sortBlackMarket('profit_per_item', true)">Profit / Item</th>
           <th class="num" onclick="sortBlackMarket('margin_pct', true)">ROI Margin</th>
           <th class="num" onclick="sortBlackMarket('total_profit', true)">Total Profit</th>
+          <th class="num" onclick="sortBlackMarket('profit_per_kg', true)" title="Silver profit per Kilogram of item weight">Silver / kg ⚖️</th>
+          <th class="num" onclick="sortBlackMarket('mount_trip', true)" title="Total Trip Profit for current mount load">Mount Trip 💰</th>
           <th class="num" onclick="sortBlackMarket('est_daily_profit', true)" title="Estimated daily silver sold to Black Market based on daily volume">Est. Daily Silver ⚡</th>
           <th class="num" onclick="sortBlackMarket('avg_daily_volume', true)">Daily BM Vol</th>
           <th class="num" onclick="sortBlackMarket('data_age_minutes', true)">Data Age</th>
@@ -897,10 +1016,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </tr>
       </thead>
       <tbody id="blackmarket-body">
-        <tr><td colspan="13" style="text-align: center; padding: 24px; color: var(--text-muted);">Loading Black Market buy orders & flips...</td></tr>
+        <tr><td colspan="16" style="text-align: center; padding: 24px; color: var(--text-muted);">Loading Black Market buy orders & flips...</td></tr>
       </tbody>
     </table>
   </div>
+
 
   <!-- VIEW 2: CRAFTING -->
   <div id="view-crafting" style="display: none;">
@@ -944,6 +1064,40 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </table>
   </div>
 
+  <!-- VIEW 5: WATCHLIST -->
+  <div id="view-watchlist" style="display: none;">
+    <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 10px 16px; margin-bottom: 12px; font-size: 0.88rem; color: #fde68a; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+      <span>⭐ <strong>Watchlist:</strong> Tracking your favorite pinned items across Royal Cities and Black Market.</span>
+      <button class="btn btn-secondary" style="padding: 3px 10px; font-size: 0.78rem;" onclick="clearWatchlist()">Clear Watchlist</button>
+    </div>
+    <table id="watchlist-table">
+      <thead>
+        <tr>
+          <th onclick="sortWatchlist('score')">Rating</th>
+          <th onclick="sortWatchlist('item_name')">Item</th>
+          <th>Tier / Q</th>
+          <th onclick="sortWatchlist('buy_city')">Buy City</th>
+          <th onclick="sortWatchlist('sell_city')">Sell City</th>
+          <th class="num" onclick="sortWatchlist('buy_price', true)">Buy Price</th>
+          <th class="num" onclick="sortWatchlist('sell_price', true)">Sell Price</th>
+          <th>Exit Mode</th>
+          <th class="num" onclick="sortWatchlist('profit_per_item', true)">Profit / Item</th>
+          <th class="num" onclick="sortWatchlist('margin_pct', true)">ROI Margin</th>
+          <th class="num" onclick="sortWatchlist('total_profit', true)">Total Profit</th>
+          <th class="num" onclick="sortWatchlist('profit_per_kg', true)" title="Silver profit per Kilogram of item weight">Silver / kg ⚖️</th>
+          <th class="num" onclick="sortWatchlist('mount_trip', true)" title="Total Trip Profit for current mount load">Mount Trip 💰</th>
+          <th class="num" onclick="sortWatchlist('est_daily_profit', true)">Est. Daily Silver ⚡</th>
+          <th class="num" onclick="sortWatchlist('avg_daily_volume', true)">Daily Vol</th>
+          <th class="num" onclick="sortWatchlist('data_age_minutes', true)">Data Age</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="watchlist-body">
+        <tr><td colspan="17" style="text-align: center; padding: 32px; color: var(--text-muted);">No items in your watchlist yet. Click the ★ star icon next to any item to pin it here!</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <!-- PAGINATION CONTROLS -->
   <div class="pagination-bar">
     <span id="page-summary">Showing 0 of 0 items</span>
@@ -952,8 +1106,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <span id="page-current" style="font-weight: 600; color: var(--text);">Page 1</span>
       <button id="btn-next" class="btn btn-secondary" onclick="nextPage()" disabled>Next ▶</button>
     </div>
+  </div>
+
   <!-- OVERRIDES MANAGER MODAL -->
   <div id="overrides-modal" class="modal-overlay" style="display: none;" onclick="closeOverridesModal(event)">
+
     <div class="modal-box" onclick="event.stopPropagation()">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
         <h3 style="margin: 0; color: #f8fafc; font-size: 1.15rem;">🏷️ Active Price & Fulfillment Overrides</h3>
@@ -976,8 +1133,39 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- SNIFFER GUIDE MODAL -->
+  <div id="sniffer-modal" class="modal-overlay" style="display: none;" onclick="closeSnifferModal(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <h3 style="margin: 0; color: #f8fafc; font-size: 1.15rem;">⚡ Live Network Sniffing & Ingestion Guide</h3>
+        <button class="btn btn-secondary" onclick="closeSnifferModal()" style="padding: 2px 8px;">✕</button>
+      </div>
+      <div style="font-size: 0.88rem; color: #cbd5e1; line-height: 1.5; display: flex; flex-direction: column; gap: 12px;">
+        <p>
+          <strong>How it works:</strong> The Albion Online Data Project (AODP) is powered by community players running the open-source <code>albiondata-client</code> network sniffer while playing.
+        </p>
+        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px 14px; color: #a7f3d0;">
+          🟢 <strong>Zero-Second Fresh Prices:</strong> Whenever you or anyone nearby opens a market stall or changes tabs in Albion Online, fresh live buy/sell prices are captured and fed directly to this tool!
+        </div>
+        <p>
+          <strong>To feed your own live market scans:</strong>
+          <br>1. Download the official open-source Albion Data Client from GitHub (<a href="https://github.com/ao-data/albiondata-client/releases" target="_blank" style="color: #60a5fa; text-decoration: underline;">ao-data/albiondata-client</a>).
+          <br>2. Run it in the background while playing Albion Online.
+          <br>3. As you browse the Marketplace, your scans will automatically update this app with 0-minute fresh prices!
+        </p>
+        <p style="font-size: 0.8rem; color: #94a3b8;">
+          <em>Note: Reading incoming game packets with albiondata-client does NOT modify game memory or automate input, keeping you 100% compliant with Sandbox Interactive TOS.</em>
+        </p>
+      </div>
+      <div style="margin-top: 18px; text-align: right;">
+        <button class="btn btn-secondary" onclick="closeSnifferModal()">Got it!</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let currentTab = 'flips';
+
     let flipsData = [];
     let blackmarketData = [];
     let craftingData = [];
@@ -995,6 +1183,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let craftCategoryFilter = 'all';
     let isFocusMode = false;
 
+    // Albion Analyser features: Mount capacity, Station tax fee, and Watchlist
+    let selectedMountCap = parseFloat(localStorage.getItem('albion_mount_cap') || '1607');
+    let currentStationFee = parseFloat(localStorage.getItem('albion_station_fee') || '500');
+    let watchlist = new Set(JSON.parse(localStorage.getItem('albion_watchlist') || '[]'));
+
     // Sorting state
     let sortKeyFlips = 'score';
     let sortAscFlips = false;
@@ -1002,6 +1195,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let sortAscBm = false;
     let sortKeyCrafting = 'profit_per_item';
     let sortAscCrafting = false;
+    let sortKeyWatchlist = 'score';
+    let sortAscWatchlist = false;
 
     function escapeHtml(str) {
       if (!str) return '';
@@ -1011,6 +1206,89 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+    }
+
+    function isStarred(itemId) {
+      return watchlist.has(itemId);
+    }
+
+    function toggleStar(itemId, btn) {
+      if (watchlist.has(itemId)) {
+        watchlist.delete(itemId);
+        showToast(`Removed <b>${escapeHtml(itemId)}</b> from Watchlist`);
+        if (btn) btn.classList.remove('starred');
+      } else {
+        watchlist.add(itemId);
+        showToast(`⭐ Added <b>${escapeHtml(itemId)}</b> to Watchlist!`);
+        if (btn) btn.classList.add('starred');
+      }
+      localStorage.setItem('albion_watchlist', JSON.stringify(Array.from(watchlist)));
+      updateWatchlistBadge();
+      renderCurrentView();
+    }
+
+    function clearWatchlist() {
+      if (confirm('Clear all pinned items from your watchlist?')) {
+        watchlist.clear();
+        localStorage.removeItem('albion_watchlist');
+        updateWatchlistBadge();
+        renderCurrentView();
+        showToast('Watchlist cleared.');
+      }
+    }
+
+    function updateWatchlistBadge() {
+      const badge = document.getElementById('watchlist-badge');
+      if (badge) {
+        badge.textContent = watchlist.size;
+        badge.style.display = watchlist.size > 0 ? 'inline-block' : 'none';
+      }
+    }
+
+    function onMountChange(val) {
+      const customInput = document.getElementById('mount-custom');
+      if (val === 'custom') {
+        if (customInput) customInput.style.display = 'inline-block';
+      } else {
+        if (customInput) customInput.style.display = 'none';
+        selectedMountCap = parseFloat(val) || 1607;
+        localStorage.setItem('albion_mount_cap', selectedMountCap);
+        const disp = document.getElementById('mount-cap-disp');
+        if (disp) disp.textContent = Math.round(selectedMountCap).toLocaleString();
+        renderCurrentView();
+      }
+    }
+
+    function onCustomMountChange(val) {
+      const num = parseFloat(val);
+      if (num && num > 0) {
+        selectedMountCap = num;
+        localStorage.setItem('albion_mount_cap', selectedMountCap);
+        const disp = document.getElementById('mount-cap-disp');
+        if (disp) disp.textContent = Math.round(selectedMountCap).toLocaleString();
+        renderCurrentView();
+      }
+    }
+
+    function updateStationFee(val) {
+      const fee = parseFloat(val);
+      if (!isNaN(fee) && fee >= 0) {
+        currentStationFee = fee;
+        localStorage.setItem('albion_station_fee', currentStationFee);
+        if (currentTab === 'crafting') renderCrafting();
+      }
+    }
+
+    function openSnifferModal() {
+      const m = document.getElementById('sniffer-modal');
+      if (m) m.style.display = 'flex';
+    }
+
+    function closeSnifferModal(e) {
+      if (!e || e.target.id === 'sniffer-modal' || e.target.tagName === 'BUTTON') {
+        const m = document.getElementById('sniffer-modal');
+        if (m) m.style.display = 'none';
+      }
     }
 
     function getWikiUrl(itemName, itemId) {
@@ -1026,9 +1304,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const q = quality || 1;
       const wikiUrl = getWikiUrl(itemName, itemId);
       const iconUrl = `https://render.albiononline.com/v1/item/${encodeURIComponent(itemId)}.png?quality=${q}`;
+      const starred = isStarred(safeId);
 
       return `
         <div class="item-cell">
+          <button class="star-btn ${starred ? 'starred' : ''}" onclick="event.stopPropagation(); toggleStar('${safeId}', this)" title="${starred ? 'Remove from Watchlist' : 'Star to pin to Watchlist'}">★</button>
           <div class="item-icon-wrapper" title="${safeName}">
             <img class="item-icon" 
                  src="${iconUrl}" 
@@ -1037,10 +1317,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                  onerror="this.parentElement.style.display='none';" />
           </div>
           <div class="item-details">
-            <a class="item-name" href="${wikiUrl}" target="_blank" rel="noopener noreferrer" title="View ${safeName} on Albion Wiki">
-              <span>${safeName}</span>
-              <span class="wiki-badge" title="Open Wiki Guide">Wiki ↗</span>
-            </a>
+            <div style="display:inline-flex; align-items:center; gap:6px;">
+              <a class="item-name" href="${wikiUrl}" target="_blank" rel="noopener noreferrer" title="View ${safeName} on Albion Wiki">
+                <span>${safeName}</span>
+                <span class="wiki-badge" title="Open Wiki Guide">Wiki ↗</span>
+              </a>
+              <button class="btn-copy-name" onclick="event.stopPropagation(); copyItemName('${safeName}', this)" title="1-Click Copy clean name for in-game Market search (Ctrl+V)">📋</button>
+            </div>
             <div style="display:flex; align-items:center; gap:4px;">
               <span class="item-id-sub">${safeId}</span>
               <button class="btn-refresh-item" onclick="event.stopPropagation(); refreshSingleItem('${safeId}', this)" title="Instantly refresh live AODP price for this item">🔄</button>
@@ -1049,6 +1332,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
       `;
     }
+
 
     function onSearchInput() {
       clearTimeout(searchDebounceTimer);
@@ -1114,17 +1398,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     function copyItemName(text, btn) {
       navigator.clipboard.writeText(text).then(() => {
-        const orig = btn.innerHTML;
-        btn.innerHTML = '✅ Copied!';
-        btn.style.color = '#34d399';
-        setTimeout(() => {
-          btn.innerHTML = orig;
-          btn.style.color = '';
-        }, 1200);
+        showToast(`📋 Copied "<b>${escapeHtml(text)}</b>" to clipboard! (Ctrl+V in Albion Market)`);
+        if (btn) {
+          const orig = btn.innerHTML;
+          btn.innerHTML = '✅ Copied!';
+          btn.style.color = '#34d399';
+          setTimeout(() => {
+            btn.innerHTML = orig;
+            btn.style.color = '';
+          }, 1200);
+        }
       }).catch(err => {
         console.error('Failed to copy', err);
       });
     }
+
 
     function setCraftFilter(category, btn) {
       craftCategoryFilter = category;
@@ -1153,16 +1441,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       document.getElementById('tab-flips').className = 'tab-btn' + (tab === 'flips' ? ' active' : '');
       document.getElementById('tab-blackmarket').className = 'tab-btn' + (tab === 'blackmarket' ? ' active' : '');
       document.getElementById('tab-crafting').className = 'tab-btn' + (tab === 'crafting' ? ' active' : '');
+      const tabWatch = document.getElementById('tab-watchlist');
+      if (tabWatch) tabWatch.className = 'tab-btn' + (tab === 'watchlist' ? ' active' : '');
       document.getElementById('tab-prices').className = 'tab-btn' + (tab === 'prices' ? ' active' : '');
 
       document.getElementById('view-flips').style.display = (tab === 'flips') ? 'block' : 'none';
       document.getElementById('view-blackmarket').style.display = (tab === 'blackmarket') ? 'block' : 'none';
       document.getElementById('view-crafting').style.display = (tab === 'crafting') ? 'block' : 'none';
+      const viewWatch = document.getElementById('view-watchlist');
+      if (viewWatch) viewWatch.style.display = (tab === 'watchlist') ? 'block' : 'none';
       document.getElementById('view-prices').style.display = (tab === 'prices') ? 'block' : 'none';
+
+      const mountBar = document.getElementById('mount-toolbar');
+      if (mountBar) mountBar.style.display = (tab === 'flips' || tab === 'blackmarket' || tab === 'watchlist') ? 'flex' : 'none';
 
       document.getElementById('quick-flips').style.display = (tab === 'flips') ? 'flex' : 'none';
       document.getElementById('quick-blackmarket').style.display = (tab === 'blackmarket') ? 'flex' : 'none';
       document.getElementById('quick-crafting').style.display = (tab === 'crafting') ? 'flex' : 'none';
+
 
       // Update City Filter label and visibility depending on active tab
       const buyCityLabel = document.getElementById('filter-buy-city-label');
@@ -1295,8 +1591,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
       // Sort
       filtered.sort((a, b) => {
-        let va = a[sortKeyFlips];
-        let vb = b[sortKeyFlips];
+        let va, vb;
+        if (sortKeyFlips === 'mount_trip') {
+          const wA = Math.max(0.05, Number(a.weight) || 0.5);
+          const wB = Math.max(0.05, Number(b.weight) || 0.5);
+          va = Math.floor(selectedMountCap / wA) * (Number(a.profit_per_item) || 0);
+          vb = Math.floor(selectedMountCap / wB) * (Number(b.profit_per_item) || 0);
+        } else if (sortKeyFlips === 'profit_per_kg') {
+          va = Number(a.profit_per_kg) || ((Number(a.profit_per_item) || 0) / Math.max(0.05, Number(a.weight) || 0.5));
+          vb = Number(b.profit_per_kg) || ((Number(b.profit_per_item) || 0) / Math.max(0.05, Number(b.weight) || 0.5));
+        } else {
+          va = a[sortKeyFlips];
+          vb = b[sortKeyFlips];
+        }
         if (typeof va === 'string') va = va.toLowerCase();
         if (typeof vb === 'string') vb = vb.toLowerCase();
         if (va < vb) return sortAscFlips ? -1 : 1;
@@ -1314,7 +1621,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       updatePagination(totalItems, startIndex, pageSlice.length, totalPages);
 
       if (pageSlice.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="16" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
+        tbody.innerHTML = '<tr><td colspan="18" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
           'No flips match the selected filters.<br><small style="margin-top:8px; display:inline-block; color:#64748b;">(Try clicking "Reset Filters" or choose "All Deals")</small>' +
           '</td></tr>';
         return;
@@ -1367,6 +1674,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const ageClass = (age <= 20) ? 'class="fresh-age"' : '';
         const safeItemName = (f.item_name || f.item_id).replace(/'/g, "\\'");
 
+        // Mount Carry & Silver/kg calculations
+        const weight = Math.max(0.05, Number(f.weight) || 0.5);
+        const profitKg = Number(f.profit_per_kg) || (profit / weight);
+        const maxMountUnits = Math.max(1, Math.floor(selectedMountCap / weight));
+        const mountTripProfit = maxMountUnits * profit;
+
+        let densityBadge = '';
+        if (profitKg >= 10000) {
+          densityBadge = `<span class="badge" style="background:#064e3b; color:#34d399; font-weight:700;" title="High density: ~${Math.round(profitKg).toLocaleString()} Silver/kg (${weight}kg each)">⚡ ${Math.round(profitKg).toLocaleString()}/kg</span>`;
+        } else if (profitKg >= 3000) {
+          densityBadge = `<span class="badge" style="background:#1e3a8a; color:#93c5fd; font-weight:600;" title="Medium density: ~${Math.round(profitKg).toLocaleString()} Silver/kg (${weight}kg each)">${Math.round(profitKg).toLocaleString()}/kg</span>`;
+        } else {
+          densityBadge = `<span style="color:#94a3b8;" title="Silver density: ~${Math.round(profitKg).toLocaleString()} Silver/kg (${weight}kg each)">${Math.round(profitKg).toLocaleString()}/kg</span>`;
+        }
+
+        const tripDisplay = `<span class="profit-val" title="Full load: ${maxMountUnits.toLocaleString()} units (${weight}kg each) on ${Math.round(selectedMountCap).toLocaleString()}kg mount">+${Math.round(mountTripProfit).toLocaleString()}</span> <small style="color:#64748b;">(${maxMountUnits.toLocaleString()}x)</small>`;
+
         return `
           <tr>
             <td>${dealBadge}</td>
@@ -1383,6 +1707,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td class="num profit-val">+${Math.round(profit).toLocaleString()}</td>
             <td class="num margin-val">+${margin.toFixed(1)}%</td>
             <td class="num profit-val">+${Math.round(totalP).toLocaleString()}</td>
+            <td class="num">${densityBadge}</td>
+            <td class="num">${tripDisplay}</td>
             <td class="num">${estDailyDisplay}</td>
             <td class="num">${volDisplay}</td>
             <td class="num" ${ageClass}>${age}m ago</td>
@@ -1398,6 +1724,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </tr>
         `;
       }).join('');
+
     }
 
     function renderBlackMarket() {
@@ -1406,8 +1733,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
       // Sort
       filtered.sort((a, b) => {
-        let va = a[sortKeyBm];
-        let vb = b[sortKeyBm];
+        let va, vb;
+        if (sortKeyBm === 'mount_trip') {
+          const wA = Math.max(0.05, Number(a.weight) || 0.5);
+          const wB = Math.max(0.05, Number(b.weight) || 0.5);
+          va = Math.floor(selectedMountCap / wA) * (Number(a.profit_per_item) || 0);
+          vb = Math.floor(selectedMountCap / wB) * (Number(b.profit_per_item) || 0);
+        } else if (sortKeyBm === 'profit_per_kg') {
+          va = Number(a.profit_per_kg) || ((Number(a.profit_per_item) || 0) / Math.max(0.05, Number(a.weight) || 0.5));
+          vb = Number(b.profit_per_kg) || ((Number(b.profit_per_item) || 0) / Math.max(0.05, Number(b.weight) || 0.5));
+        } else {
+          va = a[sortKeyBm];
+          vb = b[sortKeyBm];
+        }
         if (typeof va === 'string') va = va.toLowerCase();
         if (typeof vb === 'string') vb = vb.toLowerCase();
         if (va < vb) return sortAscBm ? -1 : 1;
@@ -1425,7 +1763,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       updatePagination(totalItems, startIndex, pageSlice.length, totalPages);
 
       if (pageSlice.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="14" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
+        tbody.innerHTML = '<tr><td colspan="16" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
           'No Black Market deals match the selected filters.<br><small style="margin-top:8px; display:inline-block; color:#64748b;">(Try clicking "All BM Deals" or selecting "Any Age")</small>' +
           '</td></tr>';
         return;
@@ -1485,6 +1823,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const margin = Number(f.margin_pct) || 0;
         const totalP = Number(f.total_profit) || 0;
 
+        // Mount Carry & Silver/kg calculations
+        const weight = Math.max(0.05, Number(f.weight) || 0.5);
+        const profitKg = Number(f.profit_per_kg) || (profit / weight);
+        const maxMountUnits = Math.max(1, Math.floor(selectedMountCap / weight));
+        const mountTripProfit = maxMountUnits * profit;
+
+        let densityBadge = '';
+        if (profitKg >= 10000) {
+          densityBadge = `<span class="badge" style="background:#064e3b; color:#34d399; font-weight:700;" title="High silver density: ~${Math.round(profitKg).toLocaleString()} Silver/kg (${weight}kg each)">⚡ ${Math.round(profitKg).toLocaleString()}/kg</span>`;
+        } else if (profitKg >= 3000) {
+          densityBadge = `<span class="badge" style="background:#1e3a8a; color:#93c5fd; font-weight:600;" title="Medium silver density: ~${Math.round(profitKg).toLocaleString()} Silver/kg (${weight}kg each)">${Math.round(profitKg).toLocaleString()}/kg</span>`;
+        } else {
+          densityBadge = `<span style="color:#94a3b8;" title="Silver density: ~${Math.round(profitKg).toLocaleString()} Silver/kg (${weight}kg each)">${Math.round(profitKg).toLocaleString()}/kg</span>`;
+        }
+
+        const tripDisplay = `<span class="profit-val" title="Full load: ${maxMountUnits.toLocaleString()} units (${weight}kg each) on ${Math.round(selectedMountCap).toLocaleString()}kg mount">+${Math.round(mountTripProfit).toLocaleString()}</span> <small style="color:#64748b;">(${maxMountUnits.toLocaleString()}x)</small>`;
+
         const safeItemName = (f.item_name || f.item_id).replace(/'/g, "\\'");
 
         return `
@@ -1502,6 +1857,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td class="num profit-val">+${Math.round(profit).toLocaleString()}</td>
             <td class="num margin-val">+${margin.toFixed(1)}%</td>
             <td class="num profit-val">+${Math.round(totalP).toLocaleString()}</td>
+            <td class="num">${densityBadge}</td>
+            <td class="num">${tripDisplay}</td>
             <td class="num">${estDailyDisplay}</td>
             <td class="num">${volDisplay}</td>
             <td class="num" ${ageClass}>${age}m ago ${age > 20 ? '<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-size: 0.68rem;" title="Scanned ' + age + 'm ago. High-profit Black Market orders are frequently fulfilled quickly in-game!">⚠️ Verify in BM</span>' : ''}</td>
@@ -1516,6 +1873,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </tr>
         `;
       }).join('');
+
     }
 
     function renderCrafting() {
@@ -1553,8 +1911,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const tierBadge = c.tier ? `<span class="badge badge-tier">${c.tier}.${c.enchant}</span>` : '';
         const bonusTag = c.city_bonus ? '<span class="badge badge-bonus">Bonus City</span>' : '';
         const rrrPct = (c.resource_return_rate * 100).toFixed(1);
-        const profit = Number(c.profit_per_item) || 0;
-        const margin = Number(c.margin_pct) || 0;
+        
+        // Station usage fee calculation
+        const itemVal = Number(c.item_value) || 64.0;
+        const stationCost = itemVal * 0.001125 * (currentStationFee / 100.0);
+        const netProfit = (Number(c.profit_per_item) || 0) - stationCost;
+        const effectiveCost = Number(c.effective_cost) || 1;
+        const netMargin = (effectiveCost > 0) ? (netProfit / effectiveCost * 100) : 0;
 
         return `
           <tr>
@@ -1568,11 +1931,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td class="num">${Math.round(c.effective_cost).toLocaleString()}</td>
             <td><strong>${c.sell_city}</strong></td>
             <td class="num">${Math.round(c.sell_price).toLocaleString()}</td>
-            <td class="num profit-val">+${Math.round(profit).toLocaleString()}</td>
-            <td class="num margin-val">+${margin.toFixed(1)}%</td>
+            <td class="num profit-val">
+              +${Math.round(netProfit).toLocaleString()}
+              ${stationCost > 0 ? `<br><small style="color:#f59e0b;" title="Station usage fee deducted at ${currentStationFee}/100 nutrition">(-${Math.round(stationCost).toLocaleString()})</small>` : ''}
+            </td>
+            <td class="num margin-val">+${netMargin.toFixed(1)}%</td>
           </tr>
         `;
       }).join('');
+
     }
 
     function renderPrices() {
@@ -1618,12 +1985,145 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }).join('');
     }
 
+    function sortWatchlist(key, isNum = false) {
+      if (sortKeyWatchlist === key) {
+        sortAscWatchlist = !sortAscWatchlist;
+      } else {
+        sortKeyWatchlist = key;
+        sortAscWatchlist = !isNum;
+      }
+      renderWatchlist();
+    }
+
+    function renderWatchlist() {
+      const tbody = document.getElementById('watchlist-body');
+      if (!tbody) return;
+
+      const allDeals = [...flipsData, ...blackmarketData];
+      const seen = new Set();
+      const dedupedDeals = [];
+      for (const d of allDeals) {
+        const k = d.item_id + '|' + d.buy_city + '|' + d.sell_city + '|' + (d.quality || 1);
+        if (!seen.has(k)) {
+          seen.add(k);
+          dedupedDeals.push(d);
+        }
+      }
+
+      let filtered = dedupedDeals.filter(f => isStarred(f.item_id));
+
+      filtered.sort((a, b) => {
+        let va, vb;
+        if (sortKeyWatchlist === 'mount_trip') {
+          const wA = Math.max(0.05, Number(a.weight) || 0.5);
+          const wB = Math.max(0.05, Number(b.weight) || 0.5);
+          va = Math.floor(selectedMountCap / wA) * (Number(a.profit_per_item) || 0);
+          vb = Math.floor(selectedMountCap / wB) * (Number(b.profit_per_item) || 0);
+        } else if (sortKeyWatchlist === 'profit_per_kg') {
+          va = Number(a.profit_per_kg) || ((Number(a.profit_per_item) || 0) / Math.max(0.05, Number(a.weight) || 0.5));
+          vb = Number(b.profit_per_kg) || ((Number(b.profit_per_item) || 0) / Math.max(0.05, Number(b.weight) || 0.5));
+        } else {
+          va = a[sortKeyWatchlist];
+          vb = b[sortKeyWatchlist];
+        }
+        if (typeof va === 'string') va = va.toLowerCase();
+        if (typeof vb === 'string') vb = vb.toLowerCase();
+        if (va < vb) return sortAscWatchlist ? -1 : 1;
+        if (va > vb) return sortAscWatchlist ? 1 : -1;
+        return 0;
+      });
+
+      const totalItems = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+      if (currentPage > totalPages) currentPage = totalPages;
+
+      const startIndex = (currentPage - 1) * pageSize;
+      const pageSlice = filtered.slice(startIndex, startIndex + pageSize);
+
+      updatePagination(totalItems, startIndex, pageSlice.length, totalPages);
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="17" style="text-align:center; padding: 40px; color: var(--text-muted);">' +
+          '<div style="font-size:1.5rem; margin-bottom:8px;">⭐</div>' +
+          '<strong>Your Watchlist is currently empty.</strong><br>' +
+          '<span style="color:#64748b; font-size:0.84rem; display:inline-block; margin-top:6px;">Click the ★ star icon next to any item in Flips, Black Market, or Crafting to follow it here!</span>' +
+          '</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = pageSlice.map(f => {
+        const isOrder = (f.exit_type === 'sell_order');
+        const exitBadge = isOrder 
+          ? '<span class="badge badge-order">Sell Order</span>' 
+          : '<span class="badge badge-instant">Instant Sell</span>';
+
+        const buyP = Number(f.buy_price) || 0;
+        const sellP = Number(f.sell_price) || 0;
+        const profit = Number(f.profit_per_item) || 0;
+        const margin = Number(f.margin_pct) || 0;
+        const totalP = Number(f.total_profit) || 0;
+        const age = Math.round(Number(f.data_age_minutes) || 0);
+        const ageClass = (age <= 20) ? 'class="fresh-age"' : '';
+
+        // Deal Rating Badge
+        const dealClass = 'deal-' + (f.deal_tier || 'c').toLowerCase();
+        const dealBadge = `<span class="badge ${dealClass}">${f.deal_label || 'DEAL'}</span>`;
+
+        // Mount Carry & Silver/kg calculations
+        const weight = Math.max(0.05, Number(f.weight) || 0.5);
+        const profitKg = Number(f.profit_per_kg) || (profit / weight);
+        const maxMountUnits = Math.max(1, Math.floor(selectedMountCap / weight));
+        const mountTripProfit = maxMountUnits * profit;
+
+        let densityBadge = '';
+        if (profitKg >= 10000) {
+          densityBadge = `<span class="badge" style="background:#064e3b; color:#34d399; font-weight:700;" title="High density: ~${Math.round(profitKg).toLocaleString()} Silver/kg">⚡ ${Math.round(profitKg).toLocaleString()}/kg</span>`;
+        } else if (profitKg >= 3000) {
+          densityBadge = `<span class="badge" style="background:#1e3a8a; color:#93c5fd; font-weight:600;">${Math.round(profitKg).toLocaleString()}/kg</span>`;
+        } else {
+          densityBadge = `<span style="color:#94a3b8;">${Math.round(profitKg).toLocaleString()}/kg</span>`;
+        }
+
+        const tripDisplay = `<span class="profit-val">+${Math.round(mountTripProfit).toLocaleString()}</span> <small style="color:#64748b;">(${maxMountUnits.toLocaleString()}x)</small>`;
+        const safeItemName = (f.item_name || f.item_id).replace(/'/g, "\\'");
+        const vol = f.avg_daily_volume ? `${Math.round(f.avg_daily_volume)}/d` : '-';
+
+        return `
+          <tr>
+            <td>${dealBadge}</td>
+            <td>${renderItemCell(f.item_id, f.item_name, f.quality)}</td>
+            <td><span class="badge badge-tier">${f.tier || 4}.${f.enchant || 0}</span></td>
+            <td>${f.buy_city || '-'}</td>
+            <td><strong>${f.sell_city || '-'}</strong></td>
+            <td class="num">${buyP.toLocaleString()}</td>
+            <td class="num">${sellP.toLocaleString()}</td>
+            <td>${exitBadge}</td>
+            <td class="num profit-val">+${Math.round(profit).toLocaleString()}</td>
+            <td class="num margin-val">+${margin.toFixed(1)}%</td>
+            <td class="num profit-val">+${Math.round(totalP).toLocaleString()}</td>
+            <td class="num">${densityBadge}</td>
+            <td class="num">${tripDisplay}</td>
+            <td class="num">+${Math.round(f.est_daily_profit || 0).toLocaleString()}</td>
+            <td class="num">${vol}</td>
+            <td class="num" ${ageClass}>${age}m ago</td>
+            <td>
+              <button class="btn btn-secondary" style="padding: 3px 8px; font-size: 0.75rem;" onclick="copyItemName('${safeItemName}', this)" title="Copy search name">
+                📋 Copy
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
     function renderCurrentView() {
       if (currentTab === 'flips') renderFlips();
       else if (currentTab === 'blackmarket') renderBlackMarket();
       else if (currentTab === 'crafting') renderCrafting();
+      else if (currentTab === 'watchlist') renderWatchlist();
       else renderPrices();
     }
+
 
     function updatePagination(total, start, count, totalPages) {
       const summary = document.getElementById('page-summary');
@@ -2082,10 +2582,62 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }, 4500);
     }
 
+    // Keyboard shortcuts for desktop companion experience
+    window.addEventListener('keydown', (e) => {
+      // Don't trigger shortcuts if user is typing in an input
+      const tag = document.activeElement ? document.activeElement.tagName : '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        if (e.key === 'Escape') {
+          document.activeElement.blur();
+        }
+        return;
+      }
+
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        triggerManualRefresh();
+      } else if (e.key === '/') {
+        e.preventDefault();
+        const sBox = document.getElementById('search-box');
+        if (sBox) sBox.focus();
+      } else if (e.key === '1') {
+        switchTab('flips');
+      } else if (e.key === '2') {
+        switchTab('blackmarket');
+      } else if (e.key === '3') {
+        switchTab('crafting');
+      } else if (e.key === '4') {
+        switchTab('watchlist');
+      } else if (e.key === '5') {
+        switchTab('prices');
+      } else if (e.key === 'Escape') {
+        closeOverridesModal();
+        closeSnifferModal();
+      }
+    });
+
+    // Initialize Watchlist badge & Mount capacity display on startup
+    updateWatchlistBadge();
+    const initMount = document.getElementById('mount-cap-disp');
+    if (initMount) initMount.textContent = Math.round(selectedMountCap).toLocaleString();
+    const selElem = document.getElementById('mount-select');
+    if (selElem) {
+      if (['672','1075','1607','2364','3425','4923','800','1100','2500'].includes(String(selectedMountCap))) {
+        selElem.value = String(selectedMountCap);
+      } else {
+        selElem.value = 'custom';
+        const cIn = document.getElementById('mount-custom');
+        if (cIn) { cIn.style.display = 'inline-block'; cIn.value = selectedMountCap; }
+      }
+    }
+    const feeElem = document.getElementById('station-fee-input');
+    if (feeElem) feeElem.value = currentStationFee;
+
     // Initial load + poll every 5 seconds
     fetchFlips();
     setInterval(fetchFlips, 5000);
   </script>
+
 
   <div id="toast-container" class="toast-container"></div>
 </body>
@@ -2318,7 +2870,10 @@ class FlipDataStore:
                 "history_missing": o.history_missing,
                 "is_new": is_new,
                 "is_fresh": is_fresh,
+                "weight": round(o.weight, 2),
+                "profit_per_kg": round(o.profit_per_kg, 1),
             }
+
 
             if o.sell_city == "Black Market":
                 serialized_blackmarket.append(entry)
@@ -2412,6 +2967,8 @@ class FlipDataStore:
                     "city_bonus": c.city_bonus,
                     "tier": c.tier,
                     "enchant": c.enchant,
+                    "weight": get_item_weight(c.item_id),
+                    "item_value": get_item_value(c.item_id),
                 })
 
             focus_craft_ops = analyze_crafting(
@@ -2440,7 +2997,10 @@ class FlipDataStore:
                     "city_bonus": c.city_bonus,
                     "tier": c.tier,
                     "enchant": c.enchant,
+                    "weight": get_item_weight(c.item_id),
+                    "item_value": get_item_value(c.item_id),
                 })
+
 
         with self._lock:
             self.server = server

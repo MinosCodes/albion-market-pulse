@@ -16,9 +16,11 @@ from albion_flips.profit import (
     calculate_crafting_profit,
     calculate_instant_profit,
     calculate_margin,
+    calculate_profit_per_kg,
     calculate_sell_order_profit,
     calculate_total_profit,
 )
+from albion_flips.weights import get_item_weight
 
 
 logger = logging.getLogger(__name__)
@@ -402,6 +404,9 @@ def analyze_flips(
                 else:
                     est_daily_profit = 0.0
 
+                item_weight = get_item_weight(item_id)
+                profit_kg = calculate_profit_per_kg(chosen_profit, item_weight)
+
                 opportunities.append(
                     FlipOpportunity(
                         item_id=item_id,
@@ -419,8 +424,11 @@ def analyze_flips(
                         quality=buy_quality,
                         history_missing=history_missing,
                         est_daily_profit=est_daily_profit,
+                        weight=item_weight,
+                        profit_per_kg=profit_kg,
                     )
                 )
+
 
     # Sort opportunities descending by profit_per_item
     opportunities.sort(key=lambda x: x.profit_per_item, reverse=True)

@@ -51,6 +51,7 @@ def build_table(
     table.add_column("Profit / Item", justify="right", style="bold green")
     table.add_column("Margin %", justify="right", style="bold yellow")
     table.add_column(f"Total Profit ({stack_size}x)", justify="right", style="bold green")
+    table.add_column("Silver / kg", justify="right", style="bold cyan")
     table.add_column("Avg Daily Vol", justify="right")
     table.add_column("Est. Daily", justify="right", style="bold green")
     table.add_column("Data Age", justify="right", style="dim")
@@ -58,6 +59,7 @@ def build_table(
 
     display_rows = flips[:top_n]
     for flip in display_rows:
+
         exit_badge = (
             Text("Order", style="cyan")
             if flip.exit_type == ExitType.SELL_ORDER
@@ -101,11 +103,13 @@ def build_table(
             f"{int(flip.profit_per_item):,}",
             f"{flip.margin_pct:.1f}%",
             f"{int(flip.total_profit):,}",
+            f"{int(round(flip.profit_per_kg)):,}/kg",
             vol_text,
             est_daily_text,
             f"{int(round(flip.data_age_minutes))}m",
             risk_text,
         )
+
 
     return table
 
@@ -117,6 +121,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--once", action="store_true", help="Perform a single market refresh and exit.")
     parser.add_argument("--watch", action="store_true", help="Continuously refresh and update table.")
     parser.add_argument("--web", action="store_true", help="Start local web dashboard at http://127.0.0.1:8765.")
+    parser.add_argument("--desktop", action="store_true", help="Launch native desktop application window (Albion Analyser style).")
     parser.add_argument("--config", type=str, default=None, help="Path to config.json.")
     parser.add_argument("--items", type=str, default="data/items.json", help="Path to items.json.")
     parser.add_argument("--offline", type=str, default=None, help="Directory containing fixture JSON files.")
@@ -124,9 +129,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--sort",
         type=str,
-        choices=["profit", "total", "margin", "volume", "daily"],
+        choices=["profit", "total", "margin", "volume", "daily", "density", "kg"],
         default="profit",
-        help="Sort column for ranking (profit, total, margin, volume, daily).",
+        help="Sort column for ranking (profit, total, margin, volume, daily, density).",
     )
     parser.add_argument(
         "--min-volume",
@@ -140,6 +145,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="Skip dead items (volume < 1 or unrecorded history).",
     )
     return parser.parse_args(args)
+
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -187,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
 
-    web_enabled = args.web or config.web_enabled
+    web_enabled = args.web or args.desktop or config.web_enabled
     web_store: FlipDataStore | None = None
     if web_enabled:
         web_store = FlipDataStore()
@@ -251,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
             flips.sort(key=lambda x: (x.avg_daily_volume or 0.0), reverse=True)
         elif args.sort == "daily":
             flips.sort(key=lambda x: x.est_daily_profit, reverse=True)
+        elif args.sort in ("density", "kg"):
+            flips.sort(key=lambda x: x.profit_per_kg, reverse=True)
         else:
             flips.sort(key=lambda x: x.profit_per_item, reverse=True)
 
@@ -264,7 +272,6 @@ def main(argv: list[str] | None = None) -> int:
                 now=now,
                 config=config,
             )
-
 
         notifier.check_and_notify(flips, item_names=ITEM_NAMES)
 
@@ -285,8 +292,32 @@ def main(argv: list[str] | None = None) -> int:
     # Initial refresh
     flips = run_refresh()
 
+    if args.desktop:
+        import threading
+        from albion_flips.desktop import open_desktop_window
+
+        stop_event = threading.Event()
+
+        def background_loop():
+            while not stop_event.is_set():
+                stop_event.wait(timeout=config.refresh_seconds)
+                if not stop_event.is_set():
+                    run_refresh(bypass_cache=True)
+
+        bg_thread = threading.Thread(target=background_loop, daemon=True)
+        bg_thread.start()
+
+        console.print(f"[bold cyan]Launching Albion Market Pulse Desktop App (http://127.0.0.1:{config.web_port})...[/bold cyan]")
+        open_desktop_window(
+            url=f"http://127.0.0.1:{config.web_port}",
+            title=f"Albion Market Pulse — Desktop Companion ({config.server.title()} Server)",
+            on_closed=lambda: stop_event.set(),
+        )
+        return 0
+
     if args.once or not args.watch:
         return 0
+
 
     # Watch loop
     console.print(f"[dim]Watching market every {config.refresh_seconds}s (Press Ctrl+C to quit)...[/dim]")

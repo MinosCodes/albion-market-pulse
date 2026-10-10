@@ -91,6 +91,8 @@ class FlipOpportunity:
     quality: int = 1
     history_missing: bool = False
     est_daily_profit: float = 0.0
+    weight: float = 0.5
+    profit_per_kg: float = 0.0
 
 
 @dataclass(slots=True)
@@ -111,4 +113,7 @@ class CraftingOpportunity:
     focus: bool = False
     tier: int | None = None
     enchant: int = 0
+    item_value: float = 0.0
+    station_fee: float = 0.0
+
 
