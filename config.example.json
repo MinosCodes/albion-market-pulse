@@ -28,6 +28,5 @@
   "web": {
     "enabled": false,
     "port": 8765
-  },
-  "gemini_api_key": null
+  }
 }

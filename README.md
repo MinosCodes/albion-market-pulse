@@ -8,7 +8,6 @@ A real-time market analysis tool and interactive web dashboard for **Albion Onli
 
 ## 🌟 Key Features
 
-- 🧙‍♂️ **Tactical AI Market Advisor**: Instant interactive advisor! Tell it what city you're currently in and your budget (e.g. *"I am in Martlock with 500k silver"*), and it will immediately generate a localized tactical briefing detailing the best equipment to craft, local refining bonuses (Highland/Mountain/Swamp/Forest/Steppe RRR), safest royal flips, and high-margin Black Market runs. 100% free, keyless, and instant (with optional Gemini LLM support).
 - 🏙️ **City-to-City Flips**: Detect profitable trade routes across Bridgewatch, Fort Sterling, Lymhurst, Martlock, Thetford, and Caerleon.
 - 🏴‍☠️ **Black Market Arbitrage**: Find high-demand items to buy in Royal cities and flip directly to Caerleon's Black Market buy orders.
   - **Live Arrival Feed**: Badges items that were recently scanned (`⚡ JUST IN`, `🟢 RECENT SCAN`).

@@ -42,26 +42,6 @@ def test_web_server_endpoints() -> None:
             assert len(data["flips"]) == 1
             assert data["flips"][0]["item_id"] == "T4_PLANKS"
             assert data["flips"][0]["profit_per_item"] == 215.5
-
-        # Test GET /api/advisor
-        with urlopen("http://127.0.0.1:18765/api/advisor?query=Martlock") as response:
-            assert response.status == 200
-            data = json.loads(response.read().decode("utf-8"))
-            assert "response" in data
-            assert "Martlock" in data["response"]
-
-        # Test POST /api/advisor
-        from urllib.request import Request
-        req = Request(
-            "http://127.0.0.1:18765/api/advisor",
-            data=json.dumps({"query": "What should I do in Thetford?"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"}
-        )
-        with urlopen(req) as response:
-            assert response.status == 200
-            data = json.loads(response.read().decode("utf-8"))
-            assert "response" in data
-            assert "Thetford" in data["response"]
     finally:
         server.shutdown()
         server.server_close()
