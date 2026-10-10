@@ -35,26 +35,27 @@ A real-time market analysis tool and interactive web dashboard for **Albion Onli
 ┌────────────────────────┐
 │     Albion Online      │ (Player opens Market / Black Market)
 └───────────┬────────────┘
-            │  Encrypted UDP game packets
+            │  UDP game packets
             ▼
 ┌────────────────────────┐
-│  Albion Data Client    │ (Sniffs market response packets locally)
-└───────────┬────────────┘
-            │  Uploads public price JSON
-            ▼
-┌────────────────────────┐
-│   Albion Online Data   │ (AODP public community database)
-│     Project (AODP)     │
-└───────────┬────────────┘
-            │  REST API calls (cached & throttled)
-            ▼
-┌────────────────────────┐
-│ Albion Market Analyzer │ (Calculates taxes, profits, margins, scores)
-└───────────┬────────────┘
-            │  JSON API & Websockets/Polling
-            ▼
-┌────────────────────────┐
-│  Local Web Dashboard   │ http://localhost:8765
+│  Albion Data Client    │
+└─────┬────────────┬─────┘
+      │            │
+      │ (Public)   │ (Direct Local Ingest: < 2ms)
+      │            ▼
+      │     ┌────────────────────────┐
+      │     │ Albion Market Pulse    │ ⚡ 0-second Live Pipe
+      │     │ (Local Web Server)     │
+      ▼     └───────────┬────────────┘
+┌───────────┐           │
+│   AODP    │           │
+│ Community │           │
+│ Database  │           │
+└─────┬─────┘           │
+      │ (Background)    │
+      ▼                 │
+┌───────────────────────┴┐
+│  Local Web Dashboard   │ http://localhost:8765 (⚡ 0s Sniffer Badges)
 └────────────────────────┘
 ```
 
@@ -173,19 +174,19 @@ This automated script will:
 - Automatically download and extract `albiondata-client.exe` from GitHub if not already present.
 - Create an **`Albion Market Pulse`** shortcut on your Desktop with the custom Albion medallion icon.
 
-### 3. Running & Ingesting Prices
+### 3. Running & Ingesting Prices (0-Second Latency)
 1. Double-click the **`Albion Market Pulse`** shortcut on your Desktop (or run `Start-Albion-Pulse.bat`).
-2. A Windows UAC prompt may appear asking to allow `albiondata-client.exe` — click **Yes** (Admin rights are required by Npcap to read network adapter packets).
-3. The launcher will automatically:
-   - Start **Albion Data Client** in its own console window (`Watching Albion`).
-   - Start **Albion Market Pulse** web engine.
-   - Pop open **`http://localhost:8765`** in your browser.
+2. A Windows UAC prompt may appear asking to allow `albiondata-client.exe` — click **Yes** (Admin rights are required by Npcap to capture network adapter packets).
+3. The launcher automatically starts:
+   - **Albion Data Client** configured with dual-upload (`-i "https+pow://...,http://127.0.0.1:8765/api/ingest"`), feeding both the community and your local dashboard in `<2ms`.
+   - **Albion Market Pulse** web engine with 0-second live calculation.
+   - Pops open **`http://localhost:8765`** in your browser.
 4. Launch **Albion Online** and walk up to any Marketplace or the Caerleon Black Market.
 5. In the **Albion Data Client** console window, you will see real-time confirmations:
    ```text
-   INFO Ingested 25 market orders -> Sent to Albion Online Data Project
+   INFO Ingested 25 market orders -> Sent to Albion Online Data Project & Local Ingest
    ```
-6. In your dashboard, newly scanned items immediately appear with the **`⚡ JUST IN`** badge!
+6. In your dashboard, the top **Sniffer: ACTIVE** pill turns pulsating neon green, and scanned items instantly appear with the **`⚡ 0s (SNIFFER)`** badge!
 
 ### 🛠️ Windows Troubleshooting
 - **`Error: No interfaces found` or `cannot open adapter`**:

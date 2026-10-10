@@ -7,7 +7,7 @@ config.json
 *.egg-info/
 dist/
 build/
-*.log
+*.log*
 *.zip
 albiondata-client/
 .DS_Store

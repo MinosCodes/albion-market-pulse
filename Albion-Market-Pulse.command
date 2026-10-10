@@ -7,7 +7,7 @@ if ! pgrep -f "albiondata-client" >/dev/null 2>&1; then
     if [ -f "$DIR/albiondata-client/albiondata-client-executable" ]; then
         osascript << APPLESCRIPT
 tell application "Terminal"
-    do script "cd \"$DIR/albiondata-client\" && echo '⚔️  Starting Albion Data Client (Live Ingest)...' && sudo ./albiondata-client-executable"
+    do script "cd \"$DIR/albiondata-client\" && echo '⚔️  Starting Albion Data Client (0s Direct Ingest)...' && sudo ./albiondata-client-executable -i \"https+pow://pow.europe.albion-online-data.com,http://127.0.0.1:8765/api/ingest\""
 end tell
 APPLESCRIPT
     fi
