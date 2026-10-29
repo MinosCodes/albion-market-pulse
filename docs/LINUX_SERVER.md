@@ -241,8 +241,20 @@ The server adds two dashboard tabs that need its SQLite history (`albion_flips/i
   toast and desktop notification in the dashboard and as a banner in the in-game overlay. Stored in
   `<data_dir>/alerts.json`, at most 100 rules.
 
+* **My Orders** (`albion_flips/orders.py`): Albion has no API for a player's own orders and this
+  project never reads the game, so orders are entered by hand (buy order, sell order, bought or sold
+  instantly). Fees follow the game: orders pay the 2.5 % setup fee, sales also pay the market tax.
+  Each open order is compared with its city's order book after every sweep and live upload; when a
+  buy order is outbid or a sell order undercut, this is reported once in the alert feed and in the
+  overlay, and the dashboard offers to beat the market by 1 silver. Changing the price of a partly
+  filled order keeps the filled part at the old price as its own finished entry. Stock per item uses
+  the average purchase cost and is valued at the best instant sale after tax. Stored in
+  `<data_dir>/orders.json`, at most 500 entries.
+
 | Route | Access |
 | --- | --- |
+| `GET /api/orders` | read access |
+| `POST /api/orders`, `/api/orders/update`, `/api/orders/delete` | login cookie |
 | `GET /api/items?q=` | read access |
 | `GET /api/history?id=&q=&days=7\|30\|120` | read access |
 | `GET /api/alerts` | read access (`can_edit` tells the page whether this visitor may change them) |

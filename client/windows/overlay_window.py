@@ -370,10 +370,15 @@ class OverlayWindow:
             box.pack(fill="x", pady=(6, 0))
             bg = "#3a2a08"
             name = item_title(a.get("item_name"), str(a.get("item_id")))
-            self._label(self._row(box, bg), f"Preisalarm: {name[:30]}", "warn", 9, True, bg=bg).pack(side="left")
-            cond = "≤" if a.get("kind") == "sell_below" else "≥"
-            self._label(self._row(box, bg), f"{a.get('city')}: {lc.silver(a.get('price'))}  (Ziel {cond} {lc.silver(a.get('target'))})",
-                        "text", 9, bg=bg).pack(side="left")
+            if a.get("kind") == "outbid":
+                head = "Überboten" if a.get("order_kind") == "buy_order" else "Unterboten"
+                self._label(self._row(box, bg), f"{head}: {name[:30]}", "bad", 9, True, bg=bg).pack(side="left")
+                line = f"{a.get('city')}: jetzt {lc.silver(a.get('price'))}, deine Order {lc.silver(a.get('target'))}"
+            else:
+                self._label(self._row(box, bg), f"Preisalarm: {name[:30]}", "warn", 9, True, bg=bg).pack(side="left")
+                cond = "≤" if a.get("kind") == "sell_below" else "≥"
+                line = f"{a.get('city')}: {lc.silver(a.get('price'))}  (Ziel {cond} {lc.silver(a.get('target'))})"
+            self._label(self._row(box, bg), line, "text", 9, bg=bg).pack(side="left")
 
         if self.card:
             self._card(self.card)

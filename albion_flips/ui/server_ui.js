@@ -21,7 +21,7 @@
   };
 
   // ------------------------------------------------------------ tabs
-  const MINE = ['history', 'alerts'];
+  const MINE = ['history', 'orders', 'alerts'];
   const original = window.switchTab;
   window.switchTab = function (tab) {
     const mine = MINE.includes(tab);
@@ -39,6 +39,7 @@
       const mb = $('mount-toolbar'); if (mb) mb.style.display = 'none';
     }
     if (tab === 'alerts') { loadAlerts(); markSeen(); }
+    if (tab === 'orders') loadOrders();
     if (tab === 'history' && !hx.item) setTimeout(() => $('hx-search').focus(), 0);
     store.set('tab', mine ? tab : null);
   };
@@ -291,6 +292,17 @@
     return (r.kind === 'sell_below' ? 'Sell order ≤ ' : 'Buy order ≥ ') + silver(r.price);
   }
 
+  // one line for any event in the alert feed (price alert or outbid order)
+  function eventText(e) {
+    const name = e.item_name + (e.quality > 1 ? ' (' + QUALITY[e.quality] + ')' : '');
+    if (e.kind === 'outbid') {
+      return e.order_kind === 'buy_order'
+        ? `${name}: your buy order in ${e.city} (${silver(e.target)}) was outbid at ${silver(e.price)}`
+        : `${name}: your sell order in ${e.city} (${silver(e.target)}) was undercut at ${silver(e.price)}`;
+    }
+    return `${name}: ${silver(e.price)} in ${e.city} (target ${e.kind === 'sell_below' ? '≤' : '≥'} ${silver(e.target)})`;
+  }
+
   async function loadAlerts() {
     try {
       const r = await fetch('/api/alerts', { credentials: 'same-origin' });
@@ -321,8 +333,8 @@
       : '<tr><td colspan="7" class="sx-empty" style="padding:28px;">No alerts yet. Add one above, or use the 🔔 button in the price history.</td></tr>';
     $('ax-events').innerHTML = d.events.length ? d.events.map((e) => `<tr>
         <td class="sx-muted">${new Date(e.time * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
-        <td>${esc(e.item_name)}${e.quality > 1 ? ' <span class="sx-muted">· ' + QUALITY[e.quality] + '</span>' : ''}</td><td>${esc(e.city)}</td>
-        <td class="num ${e.kind === 'sell_below' ? 'sx-good' : 'sx-good'}">${silver(e.price)}</td><td class="num sx-muted">${e.kind === 'sell_below' ? '≤ ' : '≥ '}${silver(e.target)}</td></tr>`).join('')
+        <td>${e.kind === 'outbid' ? '<span class="sx-pill outbid">' + (e.order_kind === 'buy_order' ? 'outbid' : 'undercut') + '</span> ' : ''}${esc(e.item_name)}${e.quality > 1 ? ' <span class="sx-muted">· ' + QUALITY[e.quality] + '</span>' : ''}</td><td>${esc(e.city)}</td>
+        <td class="num ${e.kind === 'outbid' ? 'sx-bad' : 'sx-good'}">${silver(e.price)}</td><td class="num sx-muted">${e.kind === 'outbid' ? 'yours ' : e.kind === 'sell_below' ? '≤ ' : '≥ '}${silver(e.target)}</td></tr>`).join('')
       : '<tr><td colspan="5" class="sx-empty" style="padding:28px;">No alert has fired yet.</td></tr>';
     const unseen = d.events.filter((e) => e.seq > ax.seen).length;
     const badge = $('alerts-badge');
@@ -342,15 +354,17 @@
     const fresh = d.events.filter((e) => e.seq > ax.seen && !notified.has(e.seq) && Date.now() / 1000 - e.time < 3600);
     for (const e of fresh.reverse()) {
       notified.add(e.seq);
-      const text = `${e.item_name}${e.quality > 1 ? ' (' + QUALITY[e.quality] + ')' : ''}: ${silver(e.price)} in ${e.city} (target ${e.kind === 'sell_below' ? '≤' : '≥'} ${silver(e.target)})`;
+      const text = eventText(e);
+      const head = e.kind === 'outbid' ? (e.order_kind === 'buy_order' ? 'Outbid' : 'Undercut') : 'Price alert';
       const div = document.createElement('div');
-      div.innerHTML = `<b>🔔 Price alert</b><br>${esc(text)}`;
+      div.innerHTML = `<b>${e.kind === 'outbid' ? '⚠️' : '🔔'} ${head}</b><br>${esc(text)}`;
       $('sx-toast').appendChild(div);
       setTimeout(() => div.remove(), 12000);
       if ('Notification' in window && Notification.permission === 'granted') {
-        try { new Notification('Price alert: ' + e.item_name, { body: text, icon: '/favicon.ico', tag: 'amp-alert-' + e.seq }); } catch (err) { /* ignore */ }
+        try { new Notification(head + ': ' + e.item_name, { body: text, icon: '/favicon.ico', tag: 'amp-alert-' + e.seq }); } catch (err) { /* ignore */ }
       }
     }
+    if (fresh.some((e) => e.kind === 'outbid')) loadOrders();
     if (document.getElementById('view-alerts').style.display === 'block') markSeen();
   }
 
@@ -379,6 +393,125 @@
     } catch (e) { /* ignore */ }
   }
 
+  // ------------------------------------------------------------ order tracker
+  const ox = { item: null, data: null };
+  const KIND = {
+    buy_order: ['buy', 'Buy order'], sell_order: ['sell', 'Sell order'],
+    buy_instant: ['buy', 'Bought'], sell_instant: ['sell', 'Sold'],
+  };
+  const signed = (n) => (n > 0 ? '+' : n < 0 ? '−' : '') + silver(Math.abs(n) || 0);
+  const tone = (n) => n > 0 ? 'sx-good' : n < 0 ? 'sx-bad' : '';
+
+  async function api(path, body) {
+    const r = await fetch(path, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || ('Error ' + r.status));
+    return d;
+  }
+
+  async function loadOrders() {
+    try {
+      const r = await fetch('/api/orders', { credentials: 'same-origin' });
+      if (!r.ok) return;
+      const d = await r.json();
+      if (!ox.data) {
+        $('ox-city').innerHTML = d.cities.map((c) => `<option>${esc(c)}</option>`).join('');
+        const home = store.get('orderCity', null);
+        if (home && d.cities.includes(home)) $('ox-city').value = home;
+      }
+      ox.data = d;
+      const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#ox-open');
+      if (!typing) renderOrders(); // never replace a number the user is typing
+    } catch (e) { /* offline */ }
+  }
+
+  function itemCell(o) {
+    return `<a href="#" data-hist="${esc(o.item_id)}" data-q="${o.quality}" style="color:var(--text);text-decoration:none;">${esc(o.item_name || o.item_id)}</a>${o.quality > 1 ? ' <span class="sx-muted">· ' + QUALITY[o.quality] + '</span>' : ''}${o.note ? '<br><span class="sx-muted" style="font-size:0.76rem;">' + esc(o.note) + '</span>' : ''}`;
+  }
+
+  function renderOrders() {
+    const d = ox.data; if (!d) return;
+    const t = d.totals, edit = d.can_edit;
+    $('ox-add').disabled = !edit;
+    if (!edit) $('ox-hint').textContent = 'Read-only view: open your login link to add or change orders.';
+    $('ox-kpis').innerHTML = [
+      ['Spent', silver(t.spent), 'filled buys incl. fees', ''],
+      ['Earned', silver(t.earned), 'filled sales after tax and fees', ''],
+      ['Stock worth now', silver(t.stock_value), 'at the best instant sale', ''],
+      ['Realised profit', signed(t.realised), 'sales minus their average cost', tone(t.realised)],
+      ['Overall', signed(t.total), 'earned + stock − spent', tone(t.total)],
+      ['Open orders', String(t.open), t.outbid ? `<span class="sx-bad">${t.outbid} outbid or undercut</span>` : (t.tied_up ? silver(t.tied_up) + ' tied up in buy orders' : 'all on top'), ''],
+    ].map(([k, v, s, c]) => `<div class="sx-kpi"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join('');
+
+    const open = d.orders.filter((o) => !o.closed), closed = d.orders.filter((o) => o.closed);
+    $('ox-open-note').textContent = open.length ? 'Market prices are checked after every sweep and every upload from your PC.' : '';
+    $('ox-open').innerHTML = open.length ? open.map((o) => {
+      const [cls, label] = KIND[o.kind];
+      const st = o.status === 'top' ? '<span class="sx-pill top">on top</span>'
+        : o.status === 'outbid' ? `<span class="sx-pill outbid" title="Highest buy order is ${silver(o.market_now)}">outbid</span>`
+        : o.status === 'undercut' ? `<span class="sx-pill outbid" title="Cheapest sell order is ${silver(o.market_now)}">undercut</span>`
+        : '<span class="sx-pill nodata" title="No fresh price for this item in this city">no data</span>';
+      const fix = (o.status === 'outbid' || o.status === 'undercut') && edit
+        ? ` <button class="sx-btn-sm" data-relist="${esc(o.id)}" data-price="${o.status === 'outbid' ? o.market_now + 1 : Math.max(1, o.market_now - 1)}" title="Set your price to beat the market by 1 silver">→ ${silver(o.status === 'outbid' ? o.market_now + 1 : o.market_now - 1)}</button>` : '';
+      return `<tr>
+        <td><span class="sx-pill ${cls}">${label}</span></td><td>${itemCell(o)}</td><td>${esc(o.city)}</td>
+        <td class="num">${edit ? `<input class="sx-num-in" type="number" min="1" value="${o.price}" data-price-of="${esc(o.id)}">` : silver(o.price)}</td>
+        <td class="num">${silver(o.market_now)}</td><td>${st}${fix}</td>
+        <td class="num">${edit ? `<input class="sx-num-in" type="number" min="0" max="${o.qty}" value="${o.filled}" data-fill-of="${esc(o.id)}" style="width:70px;">` : o.filled} <span class="sx-muted">/ ${o.qty.toLocaleString('en-US')}</span></td>
+        <td class="num" title="Silver after fees for the filled part / still open">${silver(o.value)}<br><span class="sx-muted" style="font-size:0.76rem;">${o.open_value ? silver(o.open_value) + ' open' : ''}</span></td>
+        <td class="sx-muted">${ago(o.created)}</td>
+        <td style="text-align:right;white-space:nowrap;">${edit ? `<button class="sx-btn-sm" data-done="${esc(o.id)}" title="Order finished or cancelled: keep what was filled">Done</button> <button class="sx-btn-sm danger" data-odel="${esc(o.id)}" title="Delete completely">✕</button>` : ''}</td></tr>`;
+    }).join('') : '<tr><td colspan="10" class="sx-empty" style="padding:28px;">No open orders. Add the orders you placed in game above.</td></tr>';
+
+    $('ox-stock').innerHTML = d.stock.length ? d.stock.map((s) => `<tr>
+        <td>${itemCell(s)}</td><td class="num">${s.qty.toLocaleString('en-US')}</td><td class="num">${silver(s.avg_cost)}</td>
+        <td class="num">${silver(s.unit_now)}</td><td>${esc(s.best_city || '–')}</td><td class="num">${silver(s.value_now)}</td>
+        <td class="num ${tone(s.profit_now || 0)}">${s.profit_now == null ? '–' : signed(s.profit_now)}</td></tr>`).join('')
+      : '<tr><td colspan="7" class="sx-empty" style="padding:24px;">Nothing in stock. Filled buys appear here until you sell them.</td></tr>';
+
+    $('ox-closed-count').textContent = closed.length ? `(${closed.length})` : '(none yet)';
+    $('ox-closed').innerHTML = closed.map((o) => {
+      const [cls, label] = KIND[o.kind];
+      return `<tr><td><span class="sx-pill ${cls}">${label}</span></td><td>${itemCell(o)}</td><td>${esc(o.city)}</td>
+        <td class="num">${silver(o.price)}</td><td class="num">${o.filled.toLocaleString('en-US')} <span class="sx-muted">/ ${o.qty.toLocaleString('en-US')}</span></td>
+        <td class="num">${silver(o.value)}</td><td class="sx-muted">${ago(o.closed)}</td>
+        <td style="text-align:right;white-space:nowrap;">${edit ? `${o.kind.endsWith('_order') ? `<button class="sx-btn-sm" data-reopen="${esc(o.id)}">Reopen</button> ` : ''}<button class="sx-btn-sm danger" data-odel="${esc(o.id)}">✕</button>` : ''}</td></tr>`;
+    }).join('');
+
+    const badge = $('orders-badge');
+    badge.textContent = t.outbid; badge.style.display = t.outbid ? 'inline-block' : 'none';
+  }
+
+  async function addOrder() {
+    const hint = $('ox-hint');
+    if (!ox.item) { hint.textContent = 'Pick an item from the search list first.'; return; }
+    const kind = $('ox-kind').value, qty = parseInt($('ox-qty').value, 10), price = parseInt($('ox-price').value, 10);
+    if (!(price > 0) || !(qty > 0)) { hint.textContent = 'Enter price and quantity.'; return; }
+    const body = { kind, item_id: ox.item.id, quality: +$('ox-quality').value, city: $('ox-city').value, price, qty,
+      filled: kind.endsWith('_order') ? (parseInt($('ox-filled').value, 10) || 0) : qty, note: $('ox-note').value };
+    $('ox-add').disabled = true;
+    try {
+      const d = await api('/api/orders', body);
+      hint.textContent = `Added: ${KIND[kind][1]} ${d.order.item_name}, ${qty.toLocaleString('en-US')} × ${silver(price)} in ${body.city}.`;
+      store.set('orderCity', body.city);
+      $('ox-price').value = ''; $('ox-filled').value = '0'; $('ox-note').value = '';
+      await loadOrders();
+    } catch (e) { hint.textContent = e.message; }
+    finally { $('ox-add').disabled = !(ox.data && ox.data.can_edit); }
+  }
+
+  async function changeOrder(id, body) {
+    try { await api('/api/orders/update', Object.assign({ id }, body)); }
+    catch (e) { $('ox-hint').textContent = e.message; }
+    await loadOrders();
+  }
+
+  function syncKind() {
+    const order = $('ox-kind').value.endsWith('_order');
+    $('ox-filled').disabled = !order;
+    $('ox-filled').title = order ? 'How much of the order is already filled' : 'Instant trades are filled completely';
+  }
+
   // ------------------------------------------------------------ wiring
   function init() {
     searchBox('hx-search', 'hx-results', (it) => { hx.item = it; hx.data = null; loadHistory(); });
@@ -397,6 +530,29 @@
     $('ax-notify').addEventListener('click', () => {
       if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().then(renderAlerts);
     });
+    searchBox('ox-search', 'ox-results', (it) => { ox.item = it; $('ox-hint').textContent = ''; $('ox-price').focus(); });
+    $('ox-kind').addEventListener('change', syncKind); syncKind();
+    $('ox-add').addEventListener('click', addOrder);
+    ['ox-price', 'ox-qty', 'ox-filled', 'ox-note'].forEach((id) => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') addOrder(); }));
+    const ov = $('view-orders');
+    ov.addEventListener('click', (e) => {
+      const b = e.target.closest('button, a[data-hist]'); if (!b) return;
+      if (b.dataset.hist) { e.preventDefault(); window.openPriceHistory(b.dataset.hist, +b.dataset.q); }
+      else if (b.dataset.done) changeOrder(b.dataset.done, { closed: true });
+      else if (b.dataset.reopen) changeOrder(b.dataset.reopen, { closed: false });
+      else if (b.dataset.relist) changeOrder(b.dataset.relist, { price: +b.dataset.price });
+      else if (b.dataset.odel && confirm('Delete this entry completely? Use "Done" to keep it in your history.')) {
+        api('/api/orders/delete', { id: b.dataset.odel }).then(loadOrders, (err) => { $('ox-hint').textContent = err.message; });
+      }
+    });
+    ov.addEventListener('change', (e) => {
+      const i = e.target;
+      if (i.dataset.fillOf) changeOrder(i.dataset.fillOf, { filled: +i.value });
+      else if (i.dataset.priceOf) changeOrder(i.dataset.priceOf, { price: +i.value });
+    });
+    loadOrders();
+    setInterval(() => { if (!document.hidden) loadOrders(); }, 60000);
+
     let rt = null;
     window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (hx.data && $('view-history').style.display === 'block') renderHistory(); }, 150); });
 

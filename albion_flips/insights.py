@@ -194,6 +194,18 @@ class AlertBook:
         with self._lock:
             return {"rules": [dict(r) for r in self.rules], "events": [dict(e) for e in self.events], "seq": self._seq}
 
+    def push(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Adds events from elsewhere (e.g. an outbid order) to the same feed and numbering."""
+        if not events:
+            return []
+        with self._lock:
+            for ev in events:
+                self._seq += 1
+                ev["seq"] = self._seq
+                self.events = [ev] + self.events[: MAX_EVENTS - 1]
+            self._save()
+        return events
+
     # ---- checking
     def check(self, quotes: Iterable[tuple[str, str, int, int, int]], now: float | None = None) -> list[dict[str, Any]]:
         """quotes: (item_id, city, quality, sell_min, buy_max) with fresh prices only (0 = none).

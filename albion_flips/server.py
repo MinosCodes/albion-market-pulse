@@ -37,6 +37,7 @@ from albion_flips.config import AppConfig, ConfigError, load_config, load_items
 from albion_flips.insights import (ITEM_ID_RE, AlertBook, history_payload, known_items, quotes_from_orders,
                                    search_items, store_quotes)
 from albion_flips.models import PriceRecord
+from albion_flips.orders import OrderBook
 from albion_flips.overlay import OverlayHub, card_from_orders, item_card, summary as overlay_summary
 from albion_flips.ratelimit import RateLimiter
 from albion_flips.storage import MarketStore
@@ -302,10 +303,17 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
                 snap["can_edit"] = auth.session_ok(self.headers.get("Cookie"))
                 self._json(200, snap)
                 return True
+            if path == "/api/orders":
+                view = insights.orders_view()
+                view["cities"] = list(insights.cities)
+                view["can_edit"] = auth.session_ok(self.headers.get("Cookie"))
+                self._json(200, view)
+                return True
             return False
 
         def _insights_post(self, path: str) -> bool:
-            if insights is None or path not in ("/api/alerts", "/api/alerts/delete"):
+            routes = ("/api/alerts", "/api/alerts/delete", "/api/orders", "/api/orders/update", "/api/orders/delete")
+            if insights is None or path not in routes:
                 return False
             if self._need_session():
                 return True
@@ -315,8 +323,18 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
                     rule = insights.alerts.add(AlertBook.validate(body, insights.cities))
                     insights.check_now({(rule["item_id"], rule["quality"])})
                     self._json(200, {"ok": True, "rule": rule})
-                else:
+                elif path == "/api/alerts/delete":
                     self._json(200, {"ok": insights.alerts.remove(str(body.get("id", "")))})
+                elif path == "/api/orders":
+                    order = insights.orders.add(OrderBook.validate(body, insights.cities))
+                    insights.check_now({(order["item_id"], order["quality"])})
+                    self._json(200, {"ok": True, "order": order})
+                elif path == "/api/orders/update":
+                    order = insights.orders.update(str(body.get("id", "")), body)
+                    insights.check_now({(order["item_id"], order["quality"])})
+                    self._json(200, {"ok": True, "order": order})
+                else:
+                    self._json(200, {"ok": insights.orders.remove(str(body.get("id", "")))})
             except ValueError as e:
                 self._json(400, {"error": str(e)})
             return True
@@ -521,8 +539,10 @@ class Insights:
     """Price history, item search and price alerts: the parts that need the SQLite history."""
 
     def __init__(self, market: MarketStore, store: FlipDataStore, alerts: AlertBook,
-                 cities: Sequence[str], item_ids: Sequence[str] = (), hub: OverlayHub | None = None) -> None:
+                 cities: Sequence[str], item_ids: Sequence[str] = (), hub: OverlayHub | None = None,
+                 orders: OrderBook | None = None) -> None:
         self.market, self.store, self.alerts, self.hub = market, store, alerts, hub
+        self.orders = orders if orders is not None else OrderBook()
         self.cities = list(dict.fromkeys(list(cities) + ["Black Market"]))
         self.item_ids = list(item_ids)
         self._index: list[str] = []
@@ -539,13 +559,24 @@ class Insights:
             if self.hub is not None and self.hub.subscribers:
                 self.hub.publish(ev)
 
-    def check_now(self, keys: set[tuple[str, int]] | None = None) -> None:
+    def _check(self, quotes: list[tuple[str, str, int, int, int]]) -> None:
         if self.alerts.rules:
-            self._fired(self.alerts.check(store_quotes(self.store, keys)))
+            self._fired(self.alerts.check(quotes))
+        self._fired(self.alerts.push(self.orders.check(quotes)))
+
+    def check_now(self, keys: set[tuple[str, int]] | None = None) -> None:
+        if self.alerts.rules or self.orders.orders:
+            self._check(store_quotes(self.store, keys))
 
     def on_orders(self, aggregated: dict[tuple[str, str, int], dict[str, int]]) -> None:
-        if self.alerts.rules:
-            self._fired(self.alerts.check(quotes_from_orders(aggregated)))
+        if self.alerts.rules or self.orders.orders:
+            self._check(quotes_from_orders(aggregated))
+
+    def orders_view(self) -> dict[str, Any]:
+        cfg = self.store.last_config
+        tax = cfg.active_tax_rate if cfg else 0.04
+        setup = cfg.setup_fee_rate if cfg else 0.025
+        return self.orders.view(store_quotes(self.store), tax, setup)
 
 
 def attach_overlay(store: FlipDataStore, poller: "Poller | None" = None, insights: Insights | None = None) -> OverlayHub:
@@ -680,7 +711,8 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("no service.access_key set: the dashboard has NO login. Run --init-keys --write.")
     auth = Auth(svc.access_key, svc.ingest_key, svc.public_read, svc.allow_local_ingest)
     store.set_refresh_callback(poller.request_sweep)
-    insights = Insights(market, store, AlertBook(data_dir / "alerts.json"), config.cities, item_ids)
+    insights = Insights(market, store, AlertBook(data_dir / "alerts.json"), config.cities, item_ids,
+                        orders=OrderBook(data_dir / "orders.json"))
     hub = attach_overlay(store, poller, insights)
     httpd = start_web_server(store, port=config.web_port, host=config.web_host,
                              handler_cls=make_handler(auth, poller.status, hub, store, insights))

@@ -45,6 +45,8 @@ dashboard is then up to date even while nobody is playing.
   of the last 7 days (server mode).
 - **Price alerts**: get a desktop notification and an in-game banner when an item drops below or a
   buy order rises above your price (server mode).
+- **Order tracker**: your buy and sell orders with fees, stock, average cost and profit, plus a
+  warning in the dashboard and in game as soon as somebody outbids you (server mode).
 - **One-click copy** of the in-game search name, plus a personal watchlist.
 
 ### Trust the numbers
