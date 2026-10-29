@@ -21,7 +21,7 @@
   };
 
   // ------------------------------------------------------------ tabs
-  const MINE = ['profile', 'history', 'orders', 'island', 'map', 'wiki', 'alerts'];
+  const MINE = ['overview', 'profile', 'history', 'orders', 'island', 'map', 'wiki', 'alerts'];
   const original = window.switchTab;
   window.switchTab = function (tab) {
     const mine = MINE.includes(tab);
@@ -42,10 +42,11 @@
     if (tab === 'orders') loadOrders();
     if (tab === 'island') loadIsland();
     if (tab === 'profile') loadProfile();
+    if (tab === 'overview') loadOverview();
     if (tab === 'map') loadWorld();
     if (tab === 'wiki' && !wx.id) setTimeout(() => $('wx-search').focus(), 0);
     if (tab === 'history' && !hx.item) setTimeout(() => $('hx-search').focus(), 0);
-    store.set('tab', mine ? tab : null);
+    store.set('lastTab', tab);
   };
 
   // ------------------------------------------------------------ item search box
@@ -700,7 +701,7 @@
     $('px-home').innerHTML = d.cities.map((c) => `<option>${esc(c)}</option>`).join('');
     $('px-name').value = p.name; $('px-home').value = p.home;
     $('px-premium').value = p.premium ? '1' : '0'; $('px-safe').value = p.safe_only ? '1' : '0';
-    $('px-focus').value = p.focus_per_day;
+    $('px-focus').value = p.focus_per_day; $('px-hours').value = p.hours_per_day; $('px-capital').value = p.capital;
     $('px-farms').value = p.island.farms; $('px-herbs').value = p.island.herb_gardens; $('px-pastures').value = p.island.pastures;
     $('px-tiers').innerHTML = PX_GROUPS.map(([g, title, keys]) => `<fieldset><legend>${title}</legend>`
       + keys.map(([k, label]) => `<label>${label} <span>T <input class="sx-num-in" type="number" min="0" max="8" data-g="${g}" data-k="${k}" value="${p[g][k]}"></span></label>`).join('')
@@ -715,7 +716,7 @@
   function readProfileForm() {
     const n = (id) => +$(id).value;
     const body = { name: $('px-name').value.trim(), home: $('px-home').value, premium: $('px-premium').value === '1',
-      safe_only: $('px-safe').value === '1', focus_per_day: n('px-focus'),
+      safe_only: $('px-safe').value === '1', focus_per_day: n('px-focus'), hours_per_day: n('px-hours'), capital: n('px-capital'),
       island: { farms: n('px-farms'), herb_gardens: n('px-herbs'), pastures: n('px-pastures') } };
     document.querySelectorAll('#px-tiers [data-g]').forEach((el) => { (body[el.dataset.g] = body[el.dataset.g] || {})[el.dataset.k] = +el.value; });
     return body;
@@ -1003,8 +1004,73 @@
     location.hash = 'wiki=' + encodeURIComponent(d.item_id);
   }
 
+  // ------------------------------------------------------------ overview
+  const vx = { data: null, all: store.get('overviewAll', false), open: null, kind: null };
+  const change = (n) => n == null ? '<span class="sx-muted" title="Not watched for an hour yet">new</span>'
+    : n > 0 ? `<span class="sx-good">▲ ${silver(n)}</span>` : n < 0 ? `<span class="sx-bad">▼ ${silver(-n)}</span>` : '<span class="sx-muted">→ 0</span>';
+
+  async function loadOverview() {
+    try {
+      const r = await fetch('/api/overview?all=' + (vx.all ? 1 : 0), { credentials: 'same-origin' });
+      if (!r.ok) return;
+      vx.data = await r.json();
+      renderOverview();
+    } catch (e) { $('vx-rows').innerHTML = '<tr><td colspan="7" class="sx-empty">Could not load the overview.</td></tr>'; }
+  }
+
+  function renderOverview() {
+    const d = vx.data; if (!d) return;
+    const best = d.best;
+    $('vx-kpis').innerHTML = [
+      ['Best right now', best ? silver(best.per_day) : '–', best ? `${best.kind}: ${best.what}` : 'no data yet', best ? 'sx-good' : ''],
+      ['Per active hour', best ? silver(best.per_active_h) : '–', best ? `about ${best.active_h} h of your time` : '', ''],
+      ['Open orders', String(d.orders.open), d.orders.outbid ? `${d.orders.outbid} outbid or undercut` : 'all on top', d.orders.outbid ? 'sx-bad' : ''],
+      ['Alerts, 24 h', String(d.alerts_24h), 'price alerts and outbid warnings', ''],
+      ['Market data', d.last_refresh ? d.last_refresh.slice(11, 16) + ' UTC' : '–', 'last full sweep', ''],
+      ['Your profile', d.profile_saved ? esc(d.home) : 'not set', d.profile_saved ? `${d.safe_only ? 'blue and yellow only' : 'red zones allowed'}, ${d.hours_per_day} h a day` : 'fill it in for your tiers', d.profile_saved ? '' : 'sx-bad'],
+    ].map(([k, v, s, cls]) => `<div class="sx-kpi" ${k === 'Open orders' ? 'data-goto="orders"' : k === 'Your profile' ? 'data-goto="profile"' : k === 'Alerts, 24 h' ? 'data-goto="alerts"' : ''} style="${['Open orders', 'Your profile', 'Alerts, 24 h'].includes(k) ? 'cursor:pointer;' : ''}"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="s">${esc(s)}</div></div>`).join('');
+
+    let top = '';
+    if (best) {
+      top += `<div class="sx-card sx-best"><div class="sx-muted" style="font-size:0.78rem;text-transform:uppercase;letter-spacing:.04em;font-weight:600;">Best trade right now · ${esc(best.kind)}</div>`
+        + `<div class="sx-row" style="align-items:baseline;margin-top:4px;"><span class="big sx-good">${silver(best.per_day)}</span><span class="sx-muted">silver a day</span><span>${change(best.change_1h)}</span></div>`
+        + `<div style="font-size:1rem;margin-top:4px;">${histLink(best.item_id, best.what)}</div><ol>${best.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol></div>`;
+      const next = d.rows.slice(1, 4);
+      const cards = next.map((e, i) => `<div class="sx-kpi"><div class="k">#${i + 2} · ${esc(e.kind)}</div><div class="v">${silver(e.per_day)}</div><div class="s">${esc(e.what)}</div><div class="s">${change(e.change_1h)} in 1 h</div></div>`);
+      if (d.up) cards.push(`<div class="sx-kpi"><div class="k">Biggest riser, 1 h</div><div class="v sx-good">▲ ${silver(d.up.change_1h)}</div><div class="s">${esc(d.up.what)}</div></div>`);
+      if (d.down) cards.push(`<div class="sx-kpi"><div class="k">Biggest faller, 1 h</div><div class="v sx-bad">▼ ${silver(-d.down.change_1h)}</div><div class="s">${esc(d.down.what)}</div></div>`);
+      top += `<div class="sx-cards3">${cards.join('')}</div>`;
+    }
+    $('vx-best').innerHTML = top;
+
+    $('vx-all').checked = vx.all;
+    $('vx-all-label').textContent = vx.all ? 'Also what I cannot do yet' : `Also what I cannot do yet${d.hidden ? ' (' + d.hidden + ')' : ''}`;
+    $('vx-sub').textContent = vx.all ? 'everything' : `fits your tiers${d.safe_only ? ', blue and yellow zones only' : ''}`;
+    const kinds = Object.entries(d.kinds).sort((a, b) => b[1] - a[1]);
+    $('vx-kinds').innerHTML = `<a href="#" data-kind="" style="${!vx.kind ? 'border-color:var(--blue);' : ''}">All</a>`
+      + kinds.map(([k, n]) => `<a href="#" data-kind="${esc(k)}" style="${vx.kind === k ? 'border-color:var(--blue);' : ''}">${esc(k)} <span class="sx-muted">${n}</span></a>`).join('');
+    const rows = d.rows.filter((e) => !vx.kind || e.kind === vx.kind);
+    $('vx-rows').innerHTML = rows.map((e, i) => {
+      const main = `<tr class="row" data-row="${esc(e.id)}"><td class="num sx-muted">${i + 1}</td><td><span class="sx-kind">${esc(e.kind)}</span></td>`
+        + `<td>${esc(e.what)}${e.why_not ? ` <span class="sx-pill outbid">${esc(e.why_not)}</span>` : ''}</td>`
+        + `<td class="num">${silver(e.unit)}</td><td class="num">${silver(e.per_active_h)}</td><td class="num"><b class="sx-good">${silver(e.per_day)}</b></td><td class="num">${change(e.change_1h)}</td></tr>`;
+      const steps = vx.open === e.id ? `<tr class="steps"><td></td><td colspan="6"><div class="sx-steps"><ol>${e.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>`
+        + `<div class="sx-row" style="margin-top:6px;"><button class="sx-btn-sm" data-wiki-open="${esc(e.item_id)}">📖 Wiki</button><button class="sx-btn-sm" data-hist="${esc(e.item_id)}">📈 Price history</button></div></div></td></tr>` : '';
+      return main + steps;
+    }).join('') || `<tr><td colspan="7" class="sx-empty">${d.hidden ? 'Nothing fits your profile right now. Tick "Also what I cannot do yet" to see the rest.' : 'No data yet: the first market sweep is still running.'}</td></tr>`;
+  }
+
   // ------------------------------------------------------------ wiring
   function init() {
+    $('vx-all').addEventListener('change', (e) => { vx.all = e.target.checked; store.set('overviewAll', vx.all); loadOverview(); });
+    $('view-overview').addEventListener('click', (e) => {
+      const g = e.target.closest('[data-goto]'); if (g) { window.switchTab(g.dataset.goto); return; }
+      const k = e.target.closest('[data-kind]'); if (k) { e.preventDefault(); vx.kind = k.dataset.kind || null; renderOverview(); return; }
+      const h = e.target.closest('[data-hist]'); if (h) { e.preventDefault(); window.openPriceHistory(h.dataset.hist, 1); return; }
+      const w = e.target.closest('[data-wiki-open]'); if (w) { window.openWiki(w.dataset.wikiOpen, 1); return; }
+      const r = e.target.closest('tr.row'); if (r) { vx.open = vx.open === r.dataset.row ? null : r.dataset.row; renderOverview(); }
+    });
+    setInterval(() => { if (!document.hidden && $('view-overview').style.display === 'block') loadOverview(); }, 60000);
     // map
     $('mx-go').addEventListener('click', findRoute);
     ['mx-from', 'mx-to'].forEach((id) => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') findRoute(); }));
@@ -1134,7 +1200,12 @@
     const mw = /^#wiki=([A-Z0-9_@]+)$/.exec(decodeURIComponent(location.hash || ''));
     if (m) window.openPriceHistory(m[1], m[2] ? +m[2] : 1);
     else if (mw) window.openWiki(mw[1], 1);
-    else if (store.get('tab', null)) window.switchTab(store.get('tab', null));
+    else {
+      // the last tab you had open; the overview on the very first visit
+      const last = store.get('lastTab', null);
+      if (last) window.switchTab(last);
+      else window.switchTab('overview');
+    }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

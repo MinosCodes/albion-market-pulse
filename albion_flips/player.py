@@ -34,6 +34,8 @@ DEFAULT_PROFILE: dict[str, Any] = {
     "premium": True,
     "safe_only": True,
     "focus_per_day": 10000,
+    "hours_per_day": 3,
+    "capital": 2_000_000,
     "island": {"farms": 2, "herb_gardens": 0, "pastures": 1},
     "gather": {k: 4 for k in GATHER},
     "refine": {k: 3 for k in REFINE},
@@ -71,6 +73,8 @@ def validate(body: dict[str, Any], cities: Iterable[str]) -> dict[str, Any]:
     p["premium"] = bool(body.get("premium", True))
     p["safe_only"] = bool(body.get("safe_only", True))
     p["focus_per_day"] = _int(body.get("focus_per_day", p["focus_per_day"]), 0, 100000, "focus per day")
+    p["hours_per_day"] = _int(body.get("hours_per_day", p["hours_per_day"]), 1, 24, "hours per day")
+    p["capital"] = _int(body.get("capital", p["capital"]), 0, 100_000_000_000, "silver to invest")
     for group, keys, hi in (("island", ("farms", "herb_gardens", "pastures"), 30), ("gather", GATHER, MAX_TIER),
                             ("refine", REFINE, MAX_TIER), ("craft", CRAFT, MAX_TIER), ("farming", ISLAND, MAX_TIER)):
         src = body.get(group)

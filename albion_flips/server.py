@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 from urllib.parse import parse_qs, urlsplit
 
-from albion_flips import island, player, wiki, world
+from albion_flips import island, overview, player, wiki, world
 from albion_flips.analyzer import analyze_flips, parse_aodp_datetime
 from albion_flips.api import AodpClient
 from albion_flips.config import AppConfig, ConfigError, load_config, load_items
@@ -313,6 +313,9 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
                 except ValueError as e:
                     self._json(400, {"error": str(e)})
                 return True
+            if path == "/api/overview":
+                self._json(200, insights.overview_view(q.get("all", ["0"])[0] == "1"))
+                return True
             if path == "/api/profile":
                 view = insights.profile_view()
                 view["can_edit"] = auth.session_ok(self.headers.get("Cookie"))
@@ -562,6 +565,7 @@ class Insights:
         self.market, self.store, self.alerts, self.hub = market, store, alerts, hub
         self.orders = orders if orders is not None else OrderBook()
         self.profile = profile if profile is not None else player.ProfileStore()
+        self.overview = overview.Overview()
         self.cities = list(dict.fromkeys(list(cities) + ["Black Market"]))
         self.item_ids = list(item_ids)
         self._index: list[str] = []
@@ -639,6 +643,31 @@ class Insights:
         except ValueError:
             quality = 1
         return wiki.item_page(item_id, quality, self.store, self.market, self.cities, home=prof["home"])
+
+    def overview_view(self, all_rows: bool = False, now: float | None = None) -> dict[str, Any]:
+        """One ranking of every way to earn silver, plus orders and alerts at a glance."""
+        now = time.time() if now is None else now
+        prof = self.profile.get()
+        quotes = store_quotes(self.store)
+        isl = self.island_view({}, quotes)
+        cfg = self.store.last_config
+        with self.store._lock:
+            flips, bm = list(self.store.flips), list(self.store.blackmarket)
+            crafting, focus = list(self.store.crafting), list(self.store.focus_crafting)
+            refs = self.store.reference
+        entries = overview.build_entries(prof, flips, bm, crafting, focus, isl, refs,
+                                         share=getattr(cfg, "market_share", 0.10) or 0.10)
+        view = self.overview.build(prof, entries, all_rows, now)
+        orders = self.orders_view()["totals"]
+        events = self.alerts.snapshot()["events"]
+        view.update({
+            "profile_saved": self.profile.saved, "home": prof["home"], "safe_only": prof["safe_only"],
+            "hours_per_day": prof["hours_per_day"],
+            "orders": {"open": orders.get("open", 0), "outbid": orders.get("outbid", 0)},
+            "alerts_24h": sum(1 for e in events if now - float(e.get("time", 0)) < 86400),
+            "last_refresh": self.store.last_refresh, "time": now,
+        })
+        return view
 
     def profile_view(self) -> dict[str, Any]:
         prof = self.profile.get()

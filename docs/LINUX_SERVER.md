@@ -225,7 +225,7 @@ the best instant sale and the best sell order after tax and setup fee (sell orde
 the 7-day average), and matching flips. Enable it in the client ("Show the in-game overlay") or start
 `AlbionMarketPulseClient.exe --overlay`.
 
-### Price history, alerts, orders, island, profile, map and wiki (server only)
+### Overview, price history, alerts, orders, island, profile, map and wiki (server only)
 
 The server adds two dashboard tabs that need its SQLite history (`albion_flips/insights.py`, pages in
 `albion_flips/ui/`, injected into the desktop page by `inject_server_ui`, so desktop mode is unchanged):
@@ -282,6 +282,18 @@ The server adds two dashboard tabs that need its SQLite history (`albion_flips/i
     pasture, crops per seed from premium) until the player changes a value there, marks rows that
     need a higher tier and can hide them.
 
+* **Overview** (`albion_flips/overview.py`), the start page on the first visit: every way to earn
+  silver in one ranking by silver per day, with silver per active hour next to it.
+  * Transport (cities and Black Market) uses the flip's daily estimate, refining and crafting
+    profit each × 10 % of what the sell city trades a day, island and gathering come from the island
+    calculator and the profile's playing hours. Neither transport nor crafting assumes more than the
+    profile's "silver to invest".
+  * Follows the profile: tiers not unlocked yet and trades that need red zones are hidden (with a
+    reason) unless "also what I cannot do yet" is ticked; flips without trade history never count.
+  * Best trade with step-by-step instructions, places 2-4, biggest riser and faller of the last hour
+    (the server keeps the values for 24 hours in memory), and open orders, outbid orders, alerts of
+    the last 24 hours and the time of the last sweep at a glance.
+  * The profile now also has hours played per day and silver to invest.
 * **Map & Routes** (`albion_flips/world.py`, `data/world.json`): the map is drawn in the browser from
   the zone data of the game files (position, exits, tier, colour, region, biome, faction, resource
   nodes); no map images are shipped or loaded. Click a zone for its facts and the way there from
@@ -298,6 +310,7 @@ The server adds two dashboard tabs that need its SQLite history (`albion_flips/i
 
 | Route | Access |
 | --- | --- |
+| `GET /api/overview?all=0\|1` | read access |
 | `GET /api/world` | read access (all zones for the map) |
 | `GET /api/route?from=&to=&red=0\|1&min=` | read access; `from`/`to` are zone ids, city or zone names |
 | `GET /api/tour?stops=a,b,c&red=0\|1&round=0\|1&min=` | read access, at most 7 stops |
@@ -330,6 +343,8 @@ artifact. The .exe is not code-signed, so Windows SmartScreen shows a warning on
   login/public read/write protection/ingest key over real HTTP, proxy handling, one full sweep.
 * `tests/test_liveclient.py`: URL/key/pairing-link validation, settings and defaults, connection
   check against a real running server, release checksum rules, refusing a tampered download.
+* `tests/test_overview.py`: the joint ranking (profile tiers, red zones, capital limit, unchecked
+  flips, the 1-hour trend and its 24-hour memory) and the route.
 * `tests/test_world_wiki.py`: routes (red and black zones, one-sided exits, tours, real map file)
   and wiki pages (recipe cost, enchanted materials, used in, resource and farm facts).
 * `tests/test_insights.py`, `tests/test_orders.py`, `tests/test_island.py`, `tests/test_player.py`:

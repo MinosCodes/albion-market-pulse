@@ -80,6 +80,13 @@
     .sx-chips a:hover { border-color: var(--blue); }
     .sx-facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.86rem; color: var(--text-muted); }
     .sx-facts b { color: var(--text); font-weight: 600; }
+    .sx-best { border-color: #f59e0b; }
+    .sx-best .big { font-size: 1.9rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .sx-best ol, .sx-steps ol { margin: 6px 0 0; padding-left: 20px; line-height: 1.6; font-size: 0.88rem; }
+    .sx-cards3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 14px; }
+    #vx-rows tr.row { cursor: pointer; } #vx-rows tr.row:hover td { background: #121a2b; }
+    #vx-rows tr.steps td { background: #0f131f; }
+    .sx-kind { font-size: 0.74rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #1e293b; color: #cbd5e1; white-space: nowrap; }
     .sx-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
     .sx-box { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: #0f131f; min-width: 0; }
     .sx-box h3 { margin: 0 0 6px; font-size: 0.86rem; color: var(--text); }
@@ -168,6 +175,26 @@
     </div>
   </div>
 
+  <div id="view-overview" style="display: none;">
+    <div class="sx-kpis" id="vx-kpis"></div>
+    <div id="vx-best"></div>
+    <div class="sx-card">
+      <div class="sx-title"><h2>Every way to earn silver, ranked</h2><span class="sx-muted" style="font-size:0.84rem;" id="vx-sub"></span>
+        <label class="sx-muted" style="font-size:0.84rem;margin-left:auto;cursor:pointer;"><input type="checkbox" id="vx-all"> <span id="vx-all-label">Also what I cannot do yet</span></label></div>
+      <div class="sx-chips" id="vx-kinds" style="margin-bottom:10px;"></div>
+      <div style="overflow-x:auto;"><table class="sx-table">
+        <thead><tr><th class="num">#</th><th>Kind</th><th>What</th><th class="num">Profit each</th><th class="num" title="Silver per day divided by the time you actually spend on it">Per active hour</th><th class="num">Per day</th><th class="num" title="Change of the daily value against about an hour ago">1 h</th></tr></thead>
+        <tbody id="vx-rows"><tr><td colspan="7" class="sx-empty">Loading...</td></tr></tbody></table></div>
+      <details style="margin-top:10px;"><summary class="sx-muted" style="cursor:pointer;font-size:0.84rem;">How are these numbers made?</summary>
+        <div class="sx-note" style="max-width:90ch;">
+          <b>Per day</b>: what the method realistically brings in a day. Transport uses the flip's daily estimate (a share of what the destination trades). Refining and crafting: profit each × 10 % of what the sell city trades a day. Crops and animals: your island from the profile. Gathering and fishing: silver per hour × the hours you play a day (profile). Transport and crafting never assume you spend more than your "silver to invest" from the profile.<br>
+          <b>Per active hour</b>: per day divided by the time you really spend: one round trip for transport, half an hour for crafting and for the island, your playing hours for gathering.<br>
+          <b>1 h</b>: change against about an hour ago, kept by the server for 24 hours.<br>
+          Click a row for the steps. Prices are checked for bait and spikes like everywhere else, but always check the quantity in game before you buy.
+        </div></details>
+    </div>
+  </div>
+
   <div id="view-profile" style="display: none;">
     <div class="sx-card">
       <div class="sx-title"><h2>Right now for you</h2><span class="sx-muted" style="font-size:0.84rem;" id="px-sub"></span></div>
@@ -181,6 +208,8 @@
         <div><label for="px-premium">Premium</label><select id="px-premium" class="sx-select"><option value="1">Yes</option><option value="0">No</option></select></div>
         <div><label for="px-safe" title="Caerleon and the Black Market can only be reached through red zones">Zones</label><select id="px-safe" class="sx-select"><option value="1">Blue and yellow only</option><option value="0">Red zones are fine</option></select></div>
         <div><label for="px-focus">Focus per day</label><input id="px-focus" class="sx-input" type="number" min="0" max="100000" step="500"></div>
+        <div><label for="px-hours" title="Hours you actively play on a normal day">Hours / day</label><input id="px-hours" class="sx-input" type="number" min="1" max="24" step="1"></div>
+        <div><label for="px-capital" title="Silver you can spend on one trade or one crafting batch">Silver to invest</label><input id="px-capital" class="sx-input" type="number" min="0" step="100000"></div>
         <div><label for="px-farms" title="Farm plots for crops, 9 seeds each">Farms</label><input id="px-farms" class="sx-input" type="number" min="0" max="30"></div>
         <div><label for="px-herbs" title="Herb gardens, 9 seeds each">Herb gardens</label><input id="px-herbs" class="sx-input" type="number" min="0" max="30"></div>
         <div><label for="px-pastures" title="Pastures, 9 animals each">Pastures</label><input id="px-pastures" class="sx-input" type="number" min="0" max="30"></div>
