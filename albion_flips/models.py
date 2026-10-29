@@ -122,6 +122,20 @@ class CraftingOpportunity:
     item_value: float = 0.0
     station_fee: float = 0.0
     data_age_minutes: float | None = None  # oldest price used in the calculation
+    daily_volume: float | None = None  # avg units sold per day at sell_city (None = no history)
+    # [{id, name, count, unit_price, city, returnable}] per craft, for icons and the cost breakdown
+    ingredients: list[dict] = field(default_factory=list)
+    returned_value: float = 0.0  # silver saved per item by the resource return rate
+    craft_silver: float = 0.0  # silver cost per item charged by the recipe itself
+    tax_paid: float = 0.0  # market tax + setup fee taken from the sale, per item
+    sell_instant: bool = False
+    city_return_rates: dict[str, float] = field(default_factory=dict)  # return rate at every crafting city
+    # Other profitable craft cities: [{city, effective_cost, profit_per_item, margin_pct, prices, cities, ...}]
+    city_options: list[dict] = field(default_factory=list)
+    # Net silver for a crafted item of quality 1..5 (best exit it can fill) and where.
+    quality_nets: list[float] = field(default_factory=list)
+    quality_exits: list[str] = field(default_factory=list)
+    expected_profit: float = 0.0  # average over base quality odds (one roll)
 
 
 @dataclass(slots=True)
@@ -155,5 +169,6 @@ class EnchantingOpportunity:
     target_daily_volume: float | None = None
     target_history_missing: bool = True
     liquidity_status: str = "untracked"
+    quality: int = 1
 
 

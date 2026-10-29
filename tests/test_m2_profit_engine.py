@@ -640,7 +640,7 @@ def test_martlock_cape_crafting() -> None:
     assert len(martlock_crafts) == 1
 
     op = martlock_crafts[0]
-    assert op.craft_city == "Martlock"
+    assert op.craft_city == "Martlock"  # the only city selling the base cape
     assert op.sell_city == "Caerleon"
     assert op.craft_type == "Faction Capes"
     # Material cost: 10000 (cape) + 15000 (crest) + 4000 (1x rockheart) = 29000
@@ -657,6 +657,7 @@ def test_crafting_synchronized_with_scanned_prices_and_overrides() -> None:
     """Verifies that newer scanned prices and manual overrides overwrite older data in crafting."""
     cfg = get_test_config()
     cfg.cities = ["Martlock", "Black Market", "Caerleon"]
+    cfg.max_margin_pct = 1000  # the overridden cloth price makes this craft a 500%+ margin
 
     prices = [
         # Older scan: T4_CLOTH at 1,000

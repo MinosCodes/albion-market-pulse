@@ -105,30 +105,31 @@ def calculate_station_usage_fee(item_value: float, fee_per_100_nutrition: float)
 def calculate_enchanting_materials(item_id: str) -> tuple[str, int]:
     """Returns (slot_type, materials_required_per_enchant_level) for an item in Albion Online.
 
-    Rules in Albion Online:
-    - Two-Handed Weapons: 192 materials (Runes, Souls, Relics) per enchant level
-    - One-Handed Weapons: 144 materials per enchant level
-    - Armor (Chest) & Bags: 96 materials per enchant level
-    - Helmets, Boots, Capes, Off-hands: 48 materials per enchant level
+    Counts per enchant level (Runes, Souls, Relics), verified against the
+    upgraderequirements in ao-bin-dumps items.json; identical for tiers 4-8:
+    - Two-Handed Weapons: 384
+    - One-Handed Weapons: 288
+    - Armor (Chest) & Bags: 192
+    - Helmets, Boots, Capes, Off-hands: 96
     """
     clean_id = item_id.split("@")[0].upper()
     if "_2H_" in clean_id:
-        return "2H Weapon", 192
+        return "2H Weapon", 384
     elif "_MAIN_" in clean_id:
-        return "1H Weapon", 144
+        return "1H Weapon", 288
     elif "_ARMOR_" in clean_id:
-        return "Armor", 96
+        return "Armor", 192
     elif "_BAG" in clean_id:
-        return "Bag", 96
+        return "Bag", 192
     elif "_HEAD_" in clean_id:
-        return "Helmet", 48
+        return "Helmet", 96
     elif "_SHOES_" in clean_id:
-        return "Boots", 48
+        return "Boots", 96
     elif "_CAPE" in clean_id:
-        return "Cape", 48
+        return "Cape", 96
     elif "_OFF_" in clean_id:
-        return "Off-hand", 48
-    return "Equipment", 48
+        return "Off-hand", 96
+    return "Equipment", 96
 
 
 def calculate_enchanting_profit(

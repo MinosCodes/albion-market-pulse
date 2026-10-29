@@ -11,7 +11,7 @@ Target user: one player on Windows 10/11, Europe server, premium account. Code m
 ## Hard rules (never break these)
 
 1. **Never read the game's memory, inject code, hook the game process, or automate game input.** That risks the user's account and is out of scope.
-2. **Never capture or decode game network traffic in this project.** The separate open-source Albion Data Client (github.com/ao-data/albiondata-client) does that and uploads to AODP. This project only reads the public AODP HTTP API.
+2. **Never capture or decode game network traffic in this project.** The separate open-source Albion Data Client (github.com/ao-data/albiondata-client) does that and uploads to AODP. This project reads the public AODP HTTP API and receives the client's uploads on `/api/ingest`. `albion_flips/sniffer.py` may download, start, and stop that unmodified official client as a child process; it must never parse packets itself.
 3. **Respect AODP rate limits.** Batch item IDs per request, cache responses, and throttle. Treat the limits as roughly 180 requests per minute and 300 per 5 minutes and verify against the AODP docs before shipping.
 4. **No secrets, accounts or paid services.** The AODP API needs no key.
 5. **Do not invent API fields or item IDs.** If a field or ID is not confirmed by a live response or the AODP / ao-bin-dumps sources, mark it `TODO(verify)` and tell the user.

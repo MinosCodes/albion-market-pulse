@@ -5,42 +5,46 @@ import logging
 import socket
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import Any, Callable, Sequence
 
-from albion_flips.analyzer import analyze_crafting, analyze_enchanting, analyze_flips, calculate_deal_score, compute_daily_volume, deduplicate_prices
+from albion_flips.analyzer import MAX_QUALITY_ROLLS, analyze_crafting, analyze_enchanting, analyze_flips, calculate_age_minutes, quality_chances, calculate_deal_score, compute_daily_volume, deduplicate_prices
 from albion_flips.config import AppConfig
 from albion_flips.models import FlipOpportunity, HistoryPoint, HistoryRecord, PriceRecord
-from albion_flips.weights import MOUNT_CAPACITIES, get_item_value, get_item_weight
+from albion_flips.names import human_name as get_human_name, load_item_names
+from albion_flips.paths import CACHE_DIR, asset_file, data_file
+from albion_flips.weights import MOUNT_CAPACITIES, get_item_weight
 
 logger = logging.getLogger(__name__)
 
+ITEM_NAMES: dict[str, str] = load_item_names()
 
-# Load item name dictionary if available
-ITEM_NAMES: dict[str, str] = {}
-names_file = Path("data/item_names.json")
-if names_file.is_file():
+
+def _load_albion_ids() -> dict[int, str]:
+    """Numeric game item index -> unique name, from ao-bin-dumps formatted/items.txt.
+
+    The data client identifies items in market-history uploads only by this index
+    (AlbionId); the AODP backend resolves it the same way.
+    """
+    ids: dict[int, str] = {}
     try:
-        with open(names_file, "r", encoding="utf-8") as f:
-            ITEM_NAMES = json.load(f)
-    except Exception as e:
-        logger.warning("Could not load item_names.json: %s", e)
+        with open(data_file("items.txt"), "r", encoding="utf-8") as f:
+            for line in f:
+                head, _, rest = line.partition(":")
+                if head.strip().isdigit():
+                    ids[int(head)] = rest.split(":")[0].strip()
+    except OSError as e:
+        logger.warning("Could not load items.txt (needed for live sales history): %s", e)
+    return ids
 
 
-def get_human_name(item_id: str) -> str:
-    if item_id in ITEM_NAMES:
-        return ITEM_NAMES[item_id]
-    base_id = item_id.split("@")[0]
-    if base_id in ITEM_NAMES:
-        return ITEM_NAMES[base_id]
-    if "_LEVEL" in item_id:
-        clean = item_id.split("_LEVEL")[0]
-        if clean in ITEM_NAMES:
-            return ITEM_NAMES[clean]
-    return item_id.replace("_", " ").title()
+ALBION_ID_TO_ITEM: dict[int, str] = _load_albion_ids()
+# .NET DateTime ticks at the Unix epoch; market history timestamps use ticks.
+_TICKS_AT_EPOCH = 621355968000000000
 
 
 def parse_tier(item_id: str) -> int | None:
@@ -394,6 +398,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .badge-q { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
     .badge-order { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
     .badge-instant { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+    .ing-list { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 3px; }
+    .ing-chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px 1px 2px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 6px; font-size: 0.76rem; color: #e2e8f0; white-space: nowrap; }
+    .ing-chip img { width: 26px; height: 26px; object-fit: contain; }
+    .ing-chip.ing-live { border-color: #38bdf8; box-shadow: 0 0 4px rgba(56, 189, 248, 0.45); }
+    .ing-chip.ing-noreturn { border-style: dashed; }
+    .ing-chip small { color: #94a3b8; }
     .badge-bonus { background: rgba(16, 185, 129, 0.18); color: #34d399; border: 1px solid #10b981; }
 
     .risk-high { color: var(--red); font-weight: 700; }
@@ -774,10 +784,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
   <div id="top-progress-bar"></div>
+  <div id="zone-banner" style="display:none; margin: 0 0 12px; padding: 12px 18px; border-radius: 8px; background: rgba(245, 158, 11, 0.14); border: 1px solid #f59e0b; color: #fde68a; font-size: 0.9rem; line-height: 1.5;">
+    ⚠️ <strong>The sniffer can't see your market scans yet.</strong> The Albion Data Client only learns which city you're in when you
+    <strong>change zone</strong>, and until then it throws away every market you open. Change zone once in-game
+    (for example walk out through the city gate and back, take a travel portal, or visit your island), then open the markets again.
+    <span style="color:#fbbf24;">Tip: start this app before you log in to the game to avoid this.</span>
+  </div>
 
   <div class="header-bar">
     <h1>
-      <span>⚔️ Albion Market & Crafting Analyzer</span>
+      <span style="display:inline-flex; align-items:center; gap:10px;"><img src="/logo.svg" alt="" width="34" height="34" style="display:block;">Albion Market & Crafting Analyzer</span>
     </h1>
     <div class="status-container">
       <div id="sync-indicator" class="sync-indicator" title="AODP Market API Sync Status">
@@ -797,6 +813,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
       <button id="btn-overrides" class="btn btn-secondary" style="display: none; border-color: #f59e0b; color: #fbbf24;" onclick="openOverridesManager()" title="Manage fulfilled orders & price overrides">
         🏷️ Overrides (<span id="override-count">0</span>)
+      </button>
+      <button id="btn-premium" class="btn btn-secondary" onclick="togglePremium()" title="Market tax taken from every sale: 4% with Premium, 8% without. All profits are shown after this tax.">
+        💎 Premium Tax 4%
       </button>
       <button id="btn-browser-notif" class="btn btn-secondary" onclick="toggleBrowserNotifications()">
         🔔 Alerts: OFF
@@ -868,11 +887,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <button class="pill-btn" onclick="setCraftFilter('Faction Capes', this)">🚩 Faction Capes</button>
       <button class="pill-btn" onclick="setCraftFilter('Weapon', this)">⚔️ Weapons</button>
       <button class="pill-btn" onclick="setCraftFilter('Armor', this)">🛡️ Armors</button>
+      <button class="pill-btn" onclick="setCraftFilter('Off-hand', this)">📖 Off-hands</button>
+      <button class="pill-btn" onclick="setCraftFilter('Consumable', this)">🧪 Potions &amp; Food</button>
+      <button class="pill-btn" onclick="setCraftFilter('Tools & Gathering', this)">⛏️ Tools &amp; Gathering</button>
+      <button class="pill-btn" onclick="setCraftFilter('Transmutation', this)" title="Raw resource transmutation (next tier or enchantment) for silver">🔁 Transmutation</button>
       <button id="btn-focus-toggle" class="pill-btn" style="margin-left: auto; border-color: var(--purple); color: #d8b4fe;" onclick="toggleFocusMode()">✨ Focus: OFF</button>
       <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px; width: 100%;">
         <span class="filter-label" style="color: #fbbf24;">🪙 Station Fee / 100 Nutrition:</span>
         <input id="station-fee-input" type="number" value="500" min="0" max="2500" step="25" style="width: 85px; padding: 3px 8px; background: #0f131f; border: 1px solid var(--border); color: #fff; border-radius: 6px; font-size: 0.85rem;" onchange="updateStationFee(this.value)" />
         <span style="font-size: 0.8rem; color: var(--text-muted);">(Set 0 if crafting on your private island)</span>
+        <span class="filter-label" style="color: #c4b5fd; margin-left: 14px;" title="Crafted items roll a quality: 68.9% Normal, 25% Good, 5% Outstanding, 1% Excellent, 0.1% Masterpiece. Specialization and focus give extra rolls (best one kept).">🎲 Quality rolls:</span>
+        <select id="quality-rolls" class="filter-select" onchange="setQualityRolls(this.value)" title="How many quality rolls you get when crafting (best one kept)">
+          <option value="1">1 roll (no spec)</option>
+          <option value="2">2 rolls (some spec / focus)</option>
+          <option value="3">3 rolls (high spec + focus)</option>
+          <option value="4">4 rolls (max spec + focus)</option>
+        </select>
+        <button class="pill-btn" onclick="sortCrafting('avg_profit', true)" title="Sort by average profit, counting better quality rolls">🎲 Sort by avg profit</button>
       </div>
     </div>
 
@@ -996,6 +1027,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </select>
       </div>
 
+      <button id="btn-sniffer-only" class="pill-btn" onclick="toggleSnifferOnly()" title="Only profitable deals that use prices captured by your sniffer in the last hour, best profit first">📡 Sniffer Scans Only</button>
       <button class="btn btn-secondary" onclick="resetFilters()">Reset Filters</button>
     </div>
   </div>
@@ -1063,12 +1095,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div id="bm-recent-chips" style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;"></div>
     </div>
 
-    <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 8px; padding: 12px 18px; margin-bottom: 16px; font-size: 0.86rem; color: #fca5a5; display: flex; align-items: center; gap: 12px;">
-      <span style="font-size: 1.35rem;">⚠️</span>
-      <div>
-        <strong>Caerleon Red Zone Notice:</strong> Items must be transported to Caerleon to sell at the Black Market. Red zones have full PvP loot. Mount recommendation: Armored Horse, Grizzly Bear, or Pest Lizard. Always check the hostile player counter before leaving the city!
-      </div>
-    </div>
     <table id="blackmarket-table">
       <thead>
         <tr>
@@ -1105,7 +1131,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <th onclick="sortCrafting('item_name')">Crafted Item</th>
           <th>Category</th>
           <th onclick="sortCrafting('craft_city')">Craft City</th>
-          <th>Ingredients & Breakdown</th>
+          <th title="Materials are bought in the craft city; artifacts and royal sigils show the city to buy them in">Ingredients (bought in craft city)</th>
           <th class="num" onclick="sortCrafting('effective_cost', true)">Effective Mat Cost</th>
           <th onclick="sortCrafting('sell_city')">Best Sell City</th>
           <th class="num" onclick="sortCrafting('sell_price', true)">Sell Price</th>
@@ -1217,7 +1243,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <!-- VIEW 5: WATCHLIST -->
   <div id="view-watchlist" style="display: none;">
     <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 10px 16px; margin-bottom: 12px; font-size: 0.88rem; color: #fde68a; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-      <span>⭐ <strong>Watchlist:</strong> Tracking your favorite pinned items across Royal Cities and Black Market.</span>
+      <span>⭐ <strong>Watchlist:</strong> Every item you starred: its flips, Black Market, crafting and enchanting deals, and its latest prices.</span>
       <button class="btn btn-secondary" style="padding: 3px 10px; font-size: 0.78rem;" onclick="clearWatchlist()">Clear Watchlist</button>
     </div>
     <table id="watchlist-table">
@@ -1246,6 +1272,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <tr><td colspan="17" style="text-align: center; padding: 32px; color: var(--text-muted);">No items in your watchlist yet. Click the ★ star icon next to any item to pin it here!</td></tr>
       </tbody>
     </table>
+    <div id="watchlist-extra"></div>
   </div>
 
   <!-- PAGINATION CONTROLS -->
@@ -1294,6 +1321,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <button class="btn btn-secondary" onclick="closeSnifferModal()" style="padding: 2px 8px;">✕</button>
       </div>
 
+      <!-- Background Albion Data Client (managed by the app) -->
+      <div id="client-card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid #334155; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 0.85rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Background Data Client</span>
+          <span id="client-state" style="font-size: 0.85rem; font-weight: 700; color: #94a3b8;">-</span>
+        </div>
+        <div id="client-message" style="font-size: 0.82rem; color: #cbd5e1; line-height: 1.45;"></div>
+        <div id="client-location" style="font-size: 0.82rem; margin-top: 4px;"></div>
+        <a id="client-help" href="https://npcap.com/#download" target="_blank" rel="noopener" style="display: none; font-size: 0.82rem; color: #60a5fa; margin-top: 6px;">⬇️ Download Npcap (npcap.com)</a>
+        <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+          <button class="btn btn-primary" onclick="snifferAction('start')" style="padding: 5px 12px; font-size: 0.8rem;">▶ Start</button>
+          <button class="btn btn-secondary" onclick="snifferAction('restart')" style="padding: 5px 12px; font-size: 0.8rem;">↻ Restart</button>
+          <button class="btn btn-secondary" onclick="snifferAction('stop')" style="padding: 5px 12px; font-size: 0.8rem;">■ Stop</button>
+          <button class="btn btn-secondary" onclick="snifferAction('show')" style="padding: 5px 12px; font-size: 0.8rem;">🪟 Show client window</button>
+        </div>
+        <details style="margin-top: 8px;">
+          <summary style="font-size: 0.78rem; color: #94a3b8; cursor: pointer;">Client log</summary>
+          <pre id="client-log" style="background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; font-size: 0.72rem; color: #94a3b8; max-height: 140px; overflow: auto; margin: 6px 0 0; white-space: pre-wrap;"></pre>
+        </details>
+      </div>
+
       <!-- Live Connection Status Card -->
       <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid #334155; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -1325,25 +1373,26 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <p style="margin: 0;">
-          <strong>Start albiondata-client with Direct 0s Local Ingest:</strong>
+          On Windows the app starts the Albion Data Client for you (card above). To run it by hand instead
+          (macOS / Linux, or with <code>"sniffer": {"enabled": false}</code> in config.json):
         </p>
 
         <!-- macOS / Linux Command -->
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
             <span style="font-size: 0.78rem; color: #94a3b8; font-weight: 600;">🍎 macOS / Linux (Terminal):</span>
-            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.72rem;" onclick="copyToClipboard('sudo ./albiondata-client-executable -i &quot;https+pow://pow.europe.albion-online-data.com,http://127.0.0.1:8765/api/ingest&quot;', this)">📋 Copy</button>
+            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.72rem;" onclick="copyToClipboard('sudo ./albiondata-client-executable -i &quot;https+pow://albion-online-data.com,http://127.0.0.1:8765/api/ingest&quot;', this)">📋 Copy</button>
           </div>
-          <pre style="background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; font-size: 0.75rem; color: #38bdf8; overflow-x: auto; margin: 0;"><code>sudo ./albiondata-client-executable -i "https+pow://pow.europe.albion-online-data.com,http://127.0.0.1:8765/api/ingest"</code></pre>
+          <pre style="background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; font-size: 0.75rem; color: #38bdf8; overflow-x: auto; margin: 0;"><code>sudo ./albiondata-client-executable -i "https+pow://albion-online-data.com,http://127.0.0.1:8765/api/ingest"</code></pre>
         </div>
 
         <!-- Windows Command -->
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
             <span style="font-size: 0.78rem; color: #94a3b8; font-weight: 600;">🪟 Windows (Command Prompt / PowerShell):</span>
-            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.72rem;" onclick="copyToClipboard('albiondata-client.exe -i &quot;https+pow://pow.europe.albion-online-data.com,http://127.0.0.1:8765/api/ingest&quot;', this)">📋 Copy</button>
+            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.72rem;" onclick="copyToClipboard('albiondata-client.exe -i &quot;https+pow://albion-online-data.com,http://127.0.0.1:8765/api/ingest&quot;', this)">📋 Copy</button>
           </div>
-          <pre style="background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; font-size: 0.75rem; color: #38bdf8; overflow-x: auto; margin: 0;"><code>albiondata-client.exe -i "https+pow://pow.europe.albion-online-data.com,http://127.0.0.1:8765/api/ingest"</code></pre>
+          <pre style="background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; font-size: 0.75rem; color: #38bdf8; overflow-x: auto; margin: 0;"><code>albiondata-client.exe -i "https+pow://albion-online-data.com,http://127.0.0.1:8765/api/ingest"</code></pre>
         </div>
 
         <p style="font-size: 0.78rem; color: #94a3b8; margin: 0;">
@@ -1363,6 +1412,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let flipsData = [];
     let blackmarketData = [];
     let craftingData = [];
+    let snifferCraftingData = [];
+    let snifferFocusCraftingData = [];
     let focusCraftingData = [];
     let enchantingData = [];
     let artifactMatsData = {};
@@ -1384,11 +1435,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let enchantStatusFilter = 'profitable';
     let enchantDemandFilter = 'all';
     let liveSnifferEventsData = [];
+    let snifferOnly = false;
+    let zoneWarningShown = false;
+    let qualityRolls = 1;
+    try { qualityRolls = Math.min(4, Math.max(1, parseInt(localStorage.getItem('albion_quality_rolls') || '1'))); } catch (e) {}
+    let premiumTax = true;
+    let marketTaxRate = 0.04;
 
     // Albion Analyser features: Mount capacity, Station tax fee, and Watchlist
     let selectedMountCap = parseFloat(localStorage.getItem('albion_mount_cap') || '1607');
     let currentStationFee = parseFloat(localStorage.getItem('albion_station_fee') || '500');
     let watchlist = new Set(JSON.parse(localStorage.getItem('albion_watchlist') || '[]'));
+    let watchlistPrices = {};
+    let watchlistNames = {};
+    let watchlistSynced = false;
+    let watchlistPending = 0;
 
     // Sorting state
     let sortKeyFlips = 'score';
@@ -1416,17 +1477,54 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       return watchlist.has(itemId);
     }
 
+    async function saveWatchlist(change) {
+      // The app keeps the watchlist on disk; the desktop window's browser storage is wiped on exit.
+      try { localStorage.setItem('albion_watchlist', JSON.stringify(Array.from(watchlist))); } catch (e) {}
+      watchlistPending++;
+      try {
+        await fetch('/api/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(change) });
+      } catch (e) {
+        console.error('Could not save watchlist', e);
+      } finally {
+        watchlistPending--;
+      }
+    }
+
+    function syncWatchlist(data) {
+      if (!Array.isArray(data.watchlist) || watchlistPending > 0) return;
+      watchlistPrices = data.watchlist_prices || {};
+      watchlistNames = data.watchlist_names || {};
+      if (!watchlistSynced) {
+        watchlistSynced = true;
+        // Carry over stars saved by older versions in browser storage.
+        const missing = Array.from(watchlist).filter(id => !data.watchlist.includes(id));
+        if (missing.length) {
+          data.watchlist.forEach(id => watchlist.add(id));
+          saveWatchlist({ add: missing });
+          updateWatchlistBadge();
+          return;
+        }
+      }
+      const changed = data.watchlist.length !== watchlist.size || data.watchlist.some(id => !watchlist.has(id));
+      if (changed) {
+        watchlist = new Set(data.watchlist);
+        try { localStorage.setItem('albion_watchlist', JSON.stringify(data.watchlist)); } catch (e) {}
+        updateWatchlistBadge();
+      }
+    }
+
     function toggleStar(itemId, btn) {
       if (watchlist.has(itemId)) {
         watchlist.delete(itemId);
+        saveWatchlist({ remove: [itemId] });
         showToast(`Removed <b>${escapeHtml(itemId)}</b> from Watchlist`);
         if (btn) btn.classList.remove('starred');
       } else {
         watchlist.add(itemId);
+        saveWatchlist({ add: [itemId] });
         showToast(`⭐ Added <b>${escapeHtml(itemId)}</b> to Watchlist!`);
         if (btn) btn.classList.add('starred');
       }
-      localStorage.setItem('albion_watchlist', JSON.stringify(Array.from(watchlist)));
       updateWatchlistBadge();
       renderCurrentView();
     }
@@ -1434,7 +1532,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     function clearWatchlist() {
       if (confirm('Clear all pinned items from your watchlist?')) {
         watchlist.clear();
-        localStorage.removeItem('albion_watchlist');
+        saveWatchlist({ clear: true });
         updateWatchlistBadge();
         renderCurrentView();
         showToast('Watchlist cleared.');
@@ -1496,6 +1594,68 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     let prevSnifferPackets = 0;
+    let snifferProcess = { state: 'disabled' };
+
+    const CLIENT_STATE_LABELS = {
+      running: ['🟢 RUNNING', '#86efac'],
+      starting: ['🟡 STARTING...', '#fde68a'],
+      downloading: ['⬇️ DOWNLOADING...', '#93c5fd'],
+      stopped: ['⚪ STOPPED', '#94a3b8'],
+      needs_npcap: ['🔴 NPCAP NEEDED', '#fca5a5'],
+      missing: ['🔴 CLIENT MISSING', '#fca5a5'],
+      external: ['🟠 OTHER CLIENT RUNNING', '#fdba74'],
+      error: ['🔴 ERROR', '#fca5a5'],
+      unsupported: ['⚪ MANUAL (non-Windows)', '#94a3b8'],
+      disabled: ['⚪ DISABLED IN CONFIG', '#94a3b8'],
+    };
+
+    function updateSnifferProcess(p) {
+      snifferProcess = p || { state: 'disabled' };
+      const [label, color] = CLIENT_STATE_LABELS[snifferProcess.state] || [snifferProcess.state, '#94a3b8'];
+      const stateEl = document.getElementById('client-state');
+      if (stateEl) { stateEl.textContent = label + (snifferProcess.elevated ? ' (ADMIN)' : ''); stateEl.style.color = color; }
+      const msgEl = document.getElementById('client-message');
+      if (msgEl) msgEl.textContent = snifferProcess.message || (snifferProcess.state === 'disabled' ? 'Automatic start is turned off in config.json ("sniffer": {"enabled": false}).' : '');
+      const helpEl = document.getElementById('client-help');
+      if (helpEl) {
+        helpEl.style.display = snifferProcess.help_url ? 'inline-block' : 'none';
+        if (snifferProcess.help_url) helpEl.href = snifferProcess.help_url;
+      }
+      const logEl = document.getElementById('client-log');
+      if (logEl) logEl.textContent = (snifferProcess.log_tail || []).join('\\n') || '(no output yet)';
+
+      const needsZone = !!snifferProcess.needs_zone_change;
+      const banner = document.getElementById('zone-banner');
+      if (banner) banner.style.display = needsZone ? 'block' : 'none';
+      const locEl = document.getElementById('client-location');
+      if (locEl) {
+        if (needsZone) {
+          locEl.innerHTML = '<span style="color:#fbbf24;">📍 In-game location: unknown. Change zone once so market scans are recorded.</span>';
+        } else if (snifferProcess.location_id) {
+          locEl.innerHTML = `<span style="color:#86efac;">📍 In-game location: ${escapeHtml(snifferProcess.location_city || snifferProcess.location_id)}</span>`;
+        } else {
+          locEl.textContent = '';
+        }
+      }
+      if (needsZone && !zoneWarningShown) {
+        zoneWarningShown = true;
+        showToast('⚠️ <strong>Sniffer:</strong> change zone once in-game, your market scans are being ignored until then.');
+      } else if (!needsZone) {
+        zoneWarningShown = false;
+      }
+    }
+
+    async function snifferAction(action) {
+      try {
+        const res = await fetch('/api/sniffer/' + action, { method: 'POST' });
+        const d = await res.json();
+        if (d.sniffer_process) updateSnifferProcess(d.sniffer_process);
+        if (d.status === 'disabled') showToast('Background Data Client is disabled in config.json');
+        setTimeout(fetchFlips, 1500);
+      } catch (e) {
+        showToast(`❌ ${e}`);
+      }
+    }
 
     function updateSnifferStatus(s) {
       const pill = document.getElementById('sniffer-pill');
@@ -1534,11 +1694,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           pill.style.color = '';
           pill.style.borderColor = '';
           pill.style.boxShadow = 'none';
-          pill.innerHTML = `⚡ Sniffer: Connect (0s Ingest)`;
+          const st = snifferProcess.state;
+          if (st === 'running') {
+            pill.innerHTML = `🟢 Sniffer: Running • open the market in-game`;
+          } else if (st === 'needs_npcap' || st === 'error' || st === 'missing' || st === 'external') {
+            pill.style.borderColor = '#ef4444';
+            pill.innerHTML = `🔴 Sniffer: ${(CLIENT_STATE_LABELS[st] || [st])[0].replace(/^\\S+ /, '')} (click)`;
+          } else if (st === 'starting' || st === 'downloading') {
+            pill.innerHTML = `🟡 Sniffer: ${st === 'downloading' ? 'Downloading client...' : 'Starting...'}`;
+          } else {
+            pill.innerHTML = `⚡ Sniffer: Connect (0s Ingest)`;
+          }
         }
         if (mStatus) {
           mStatus.innerHTML = `<span style="color:#94a3b8;">⚪ WAITING FOR PACKETS...</span>`;
         }
+      }
+      if (pill && snifferProcess && snifferProcess.needs_zone_change) {
+        pill.style.background = '#451a03';
+        pill.style.color = '#fde68a';
+        pill.style.borderColor = '#f59e0b';
+        pill.style.boxShadow = '0 0 10px rgba(245, 158, 11, 0.4)';
+        pill.innerHTML = '⚠️ <b>Sniffer: change zone in-game</b>';
       }
     }
 
@@ -1668,6 +1845,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       flipQuickFilter = 'all';
       bmQuickFilter = 'all';
       craftCategoryFilter = 'all';
+      snifferOnly = false;
+      const snifBtn = document.getElementById('btn-sniffer-only');
+      if (snifBtn) { snifBtn.classList.remove('active'); snifBtn.textContent = '📡 Sniffer Scans Only'; }
       enchantStepFilter = 'all';
       enchantSlotFilter = 'all';
       enchantStatusFilter = 'profitable';
@@ -1741,6 +1921,76 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       btn.classList.add('active');
       currentPage = 1;
       renderCurrentView();
+    }
+
+    function toggleSnifferOnly() {
+      snifferOnly = !snifferOnly;
+      const btn = document.getElementById('btn-sniffer-only');
+      btn.classList.toggle('active', snifferOnly);
+      btn.textContent = snifferOnly ? '📡 Sniffer Scans Only: ON' : '📡 Sniffer Scans Only';
+      if (snifferOnly) {
+        // Best deals first
+        sortKeyFlips = 'profit_per_item'; sortAscFlips = false;
+        sortKeyBm = 'profit_per_item'; sortAscBm = false;
+        sortKeyCrafting = 'profit_per_item'; sortAscCrafting = false;
+        sortKeyEnchant = 'profit_per_item'; sortAscEnchant = false;
+      }
+      currentPage = 1;
+      renderCurrentView();
+    }
+
+    function updatePremiumButton(data) {
+      if (typeof data.premium !== 'boolean') return;
+      premiumTax = data.premium;
+      marketTaxRate = Number(data.tax_rate) || (premiumTax ? 0.04 : 0.08);
+      const btn = document.getElementById('btn-premium');
+      if (!btn) return;
+      const pct = Math.round(marketTaxRate * 1000) / 10;
+      btn.textContent = premiumTax ? `💎 Premium Tax ${pct}%` : `🪙 Normal Tax ${pct}% (No Premium)`;
+      btn.style.borderColor = premiumTax ? '#a855f7' : '';
+      btn.style.color = premiumTax ? '#d8b4fe' : '';
+    }
+
+    async function togglePremium() {
+      const btn = document.getElementById('btn-premium');
+      if (btn) btn.disabled = true;
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ premium: !premiumTax }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          updatePremiumButton(data);
+          await fetchFlips();
+          showToast(premiumTax ? '💎 Premium: profits now use the 4% market tax' : '🪙 No Premium: profits now use the 8% market tax');
+        }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    function renderIngredients(c) {
+      const list = c.ingredients || [];
+      if (!list.length) return `<div style="font-size:0.82rem; color:#cbd5e1;">${escapeHtml(c.ingredients_desc)}</div>`;
+      return '<div class="ing-list">' + list.map(ing => {
+        const icon = `https://render.albiononline.com/v1/item/${encodeURIComponent(ing.id)}.png?quality=1`;
+        const live = ing.is_live_sniffer;
+        const ageTxt = live ? ` • 📡 sniffed ${Math.round((ing.sniffer_age_seconds || 0) / 60)}m ago` : '';
+        const retTxt = (ing.returnable ? '' : ' • not returned (no return rate)') + (ing.bought_elsewhere ? ` • buy in ${ing.city} (not sold everywhere)` : '');
+        const title = `${ing.count}x ${ing.name} @ ${Number(ing.unit_price).toLocaleString()} each in ${ing.city} = ${(ing.count * ing.unit_price).toLocaleString()}${retTxt}${ageTxt}`;
+        return `<span class="ing-chip${live ? ' ing-live' : ''}${ing.returnable ? '' : ' ing-noreturn'}" title="${escapeHtml(title)}">` +
+          `<img src="${icon}" loading="lazy" alt="" onerror="this.style.display='none';">` +
+          `<b>${ing.count}x</b> ${Number(ing.unit_price).toLocaleString()}${live ? ' 📡' : ''}` +
+          (ing.bought_elsewhere ? ` <small style="color:#fbbf24;">🛒 buy in ${escapeHtml(ing.city)}</small>` : '') + `</span>`;
+      }).join('') + '</div>';
+    }
+
+    function returnRateTitle(c) {
+      const rates = c.city_return_rates || {};
+      const rows = Object.entries(rates).sort((a, b) => b[1] - a[1]).map(([city, r]) => `${city}: ${(r * 100).toFixed(1)}%`);
+      return rows.length ? 'Return rate for this item by crafting city:' + String.fromCharCode(10) + rows.join(String.fromCharCode(10)) : 'No returnable materials in this recipe';
     }
 
     function toggleFocusMode() {
@@ -1845,6 +2095,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (!searchTarget.includes(query)) return false;
       }
 
+      if (snifferOnly) {
+        if (!item.is_live_sniffer) return false;
+        if (type !== 'price' && !(Number(item.profit_per_item) > 0)) return false;
+      }
       if (fTier !== 'all' && Number(item.tier) !== Number(fTier)) return false;
       if (fEnchant !== 'all' && Number(item.enchant) !== Number(fEnchant)) return false;
       if (type !== 'crafting' && fQuality !== 'all' && Number(item.quality || 1) !== Number(fQuality)) return false;
@@ -1895,6 +2149,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (bmQuickFilter === 'high_profit' && Number(item.profit_per_item) < 100000) return false;
 
       } else if (type === 'crafting') {
+        // Only crafts that make money after the station fee: as Normal, or on average
+        // once better quality rolls are counted.
+        if (craftBestProfit(item) <= 0) return false;
         if (fBuyCity !== 'all' && item.craft_city !== fBuyCity) return false;
         if (fSellCity !== 'all' && item.sell_city !== fSellCity) return false;
 
@@ -2216,14 +2473,96 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     }
 
+    function craftStationCost(c) {
+      const itemVal = Number(c.item_value) || 64.0;
+      return itemVal * 0.1125 * (currentStationFee / 100.0);
+    }
+
+    function craftNetProfit(c) {
+      return (Number(c.profit_per_item) || 0) - craftStationCost(c);
+    }
+
+    const QUALITY_ODDS = [0.689, 0.25, 0.05, 0.01, 0.001];
+    const QUALITY_NAMES = ['Normal', 'Good', 'Outstanding', 'Excellent', 'Masterpiece'];
+
+    function qualityChances(rolls) {
+      // Best of `rolls` rolls is kept.
+      const out = []; let cum = 0, prev = 0;
+      for (const odd of QUALITY_ODDS) {
+        cum = Math.min(1, cum + odd);
+        const best = Math.pow(cum, rolls);
+        out.push(best - prev); prev = best;
+      }
+      return out;
+    }
+
+    function craftAvgProfit(c) {
+      const nets = c.quality_nets || [];
+      if (!nets.length) return craftNetProfit(c);
+      const ch = qualityChances(qualityRolls);
+      const revenue = nets.reduce((sum, n, i) => sum + (ch[i] || 0) * (Number(n) || 0), 0);
+      return revenue - (Number(c.effective_cost) || 0) - craftStationCost(c);
+    }
+
+    function craftBestProfit(c) {
+      return Math.max(c.sell_city ? craftNetProfit(c) : -Infinity, craftAvgProfit(c));
+    }
+
+    function qualityBreakdown(c) {
+      const nets = c.quality_nets || [];
+      if (!nets.length) return '';
+      const ch = qualityChances(qualityRolls);
+      const cost = (Number(c.effective_cost) || 0) + craftStationCost(c);
+      const nl = String.fromCharCode(10);
+      return `If it comes out (${qualityRolls} roll${qualityRolls > 1 ? 's' : ''}):` + nl + nets.map((n, i) => {
+        const where = (c.quality_exits || [])[i] || 'no buyer';
+        const prof = (Number(n) || 0) - cost;
+        return `${QUALITY_NAMES[i]} (${(ch[i] * 100).toFixed(ch[i] < 0.01 ? 2 : 1)}%): ${prof >= 0 ? '+' : ''}${Math.round(prof).toLocaleString()}  [${where}]`;
+      }).join(nl);
+    }
+
+    function setQualityRolls(v) {
+      qualityRolls = Math.min(4, Math.max(1, parseInt(v) || 1));
+      try { localStorage.setItem('albion_quality_rolls', String(qualityRolls)); } catch (e) {}
+      currentPage = 1;
+      renderCurrentView();
+    }
+
+    function craftForCity(c, city) {
+      // The row shows the cheapest craft city; with a Craft City filter, show that city's numbers.
+      if (city === 'all' || c.craft_city === city) return c;
+      const opt = (c.city_options || []).find(o => o.city === city);
+      if (!opt) return null;
+      const ingredients = (c.ingredients || []).map((ing, i) => ({
+        ...ing, unit_price: opt.prices[i], city: opt.cities[i],
+        is_live_sniffer: !!(opt.sniffed && opt.sniffed[i]), sniffer_age_seconds: null,
+      }));
+      return {
+        ...c, craft_city: city, effective_cost: opt.effective_cost, profit_per_item: opt.profit_per_item,
+        margin_pct: opt.margin_pct, resource_return_rate: opt.resource_return_rate, returned_value: opt.returned_value,
+        city_bonus: opt.city_bonus, ingredients,
+        // per item, like the server's value (recipes can make several items)
+        material_cost: c.material_cost * ingredients.reduce((sum, ing) => sum + ing.count * ing.unit_price, 0)
+          / Math.max(1, (c.ingredients || []).reduce((sum, ing) => sum + ing.count * ing.unit_price, 0)),
+        is_live_sniffer: ingredients.some(ing => ing.is_live_sniffer) || c.output_sniffed,
+      };
+    }
+
     function renderCrafting() {
       const tbody = document.getElementById('crafting-body');
-      const source = isFocusMode ? focusCraftingData : craftingData;
-      let filtered = source.filter(c => passesFilters(c, 'crafting'));
+      // Sniffer mode: every material price comes from a sniffer scan in the craft city
+      // (artifacts / royal sigils from whichever sniffed city is cheapest).
+      const source = snifferOnly
+        ? (isFocusMode ? snifferFocusCraftingData : snifferCraftingData)
+        : (isFocusMode ? focusCraftingData : craftingData);
+      const craftCity = document.getElementById('filter-buy-city').value;
+      let filtered = source.map(c => craftForCity(c, craftCity)).filter(c => c && passesFilters(c, 'crafting'));
 
       filtered.sort((a, b) => {
-        let va = a[sortKeyCrafting];
-        let vb = b[sortKeyCrafting];
+        const craftSortValue = (c) => sortKeyCrafting === 'profit_per_item' ? (c.sell_city ? craftNetProfit(c) : -Infinity)
+          : sortKeyCrafting === 'avg_profit' ? craftAvgProfit(c) : c[sortKeyCrafting];
+        let va = craftSortValue(a);
+        let vb = craftSortValue(b);
         if (typeof va === 'string') va = va.toLowerCase();
         if (typeof vb === 'string') vb = vb.toLowerCase();
         if (va < vb) return sortAscCrafting ? -1 : 1;
@@ -2242,7 +2581,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
       if (pageSlice.length === 0) {
         tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 32px; color: var(--text-muted);">' +
-          'No crafting recipes match your current filters.<br><small style="margin-top:8px; display:inline-block; color:#64748b;">(Try selecting "All Recipes" or clearing search)</small>' +
+          (snifferOnly
+            ? 'No profitable crafts from sniffer prices yet.<br><small style="margin-top:8px; display:inline-block; color:#64748b;">(Open the market in the city you craft in and look at each material; in this mode every material price must come from your sniffer)</small>'
+            : 'No crafting recipes match your current filters.<br><small style="margin-top:8px; display:inline-block; color:#64748b;">(Try selecting "All Recipes" or clearing search)</small>') +
           '</td></tr>';
         return;
       }
@@ -2253,29 +2594,36 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const rrrPct = (c.resource_return_rate * 100).toFixed(1);
         
         // Station usage fee calculation
-        const itemVal = Number(c.item_value) || 64.0;
-        const stationCost = itemVal * 0.001125 * (currentStationFee / 100.0);
-        const netProfit = (Number(c.profit_per_item) || 0) - stationCost;
+        const stationCost = craftStationCost(c);
+        const netProfit = craftNetProfit(c);
         const effectiveCost = Number(c.effective_cost) || 1;
         const netMargin = (effectiveCost > 0) ? (netProfit / effectiveCost * 100) : 0;
 
         return `
           <tr>
-            <td>${renderItemCell(c.item_id, c.item_name, 1)}</td>
+            <td>${renderItemCell(c.item_id, c.item_name, 1)}${c.is_live_sniffer ? `<div><span class="badge" style="background:#0c4a6e; color:#7dd3fc; font-size:0.7rem;" title="${c.output_sniffed ? 'Sell price' : 'Material price(s)'} captured by your sniffer">📡 Sniffer ${Math.round((c.sniffer_age_seconds || 0) / 60)}m ago</span></div>` : ''}</td>
             <td>${tierBadge} <span class="badge badge-q">${c.craft_type}</span></td>
-            <td><strong>${c.craft_city}</strong> ${bonusTag}</td>
+            <td title="${escapeHtml(returnRateTitle(c))}"><strong>${c.craft_city}</strong> ${bonusTag}
+              <div style="font-size:0.74rem; color:#a7f3d0;">Return rate ${rrrPct}%</div>
+            </td>
             <td>
-              <div style="font-size:0.82rem; color:#cbd5e1;">${c.ingredients_desc}</div>
-              <div style="font-size:0.74rem; color:#64748b;">Raw Mat: ${Math.round(c.material_cost).toLocaleString()} | RRR: ${rrrPct}%</div>
+              ${renderIngredients(c)}
+              <div style="font-size:0.74rem; color:#64748b;">Raw Mat: ${Math.round(c.material_cost).toLocaleString()} | ${rrrPct}% returned: -${Math.round(c.returned_value || 0).toLocaleString()}${c.craft_silver ? ` | silver +${Math.round(c.craft_silver).toLocaleString()}` : ''}</div>
             </td>
-            <td class="num">${Math.round(c.effective_cost).toLocaleString()}</td>
-            <td><strong>${c.sell_city}</strong></td>
-            <td class="num">${Math.round(c.sell_price).toLocaleString()}</td>
-            <td class="num profit-val">
-              +${Math.round(netProfit).toLocaleString()}
-              ${stationCost > 0 ? `<br><small style="color:#f59e0b;" title="Station usage fee deducted at ${currentStationFee}/100 nutrition">(-${Math.round(stationCost).toLocaleString()})</small>` : ''}
+            <td class="num" title="Material cost after the ${rrrPct}% resource return (plus crafting silver), per item">${Math.round(c.effective_cost).toLocaleString()}</td>
+            <td>${c.sell_city ? `<strong>${c.sell_city}</strong>` : `<strong style="color:#fbbf24;" title="${escapeHtml(qualityBreakdown(c))}">🎲 Better qualities only</strong>`}
+              <div style="font-size:0.74rem; color:${c.daily_volume == null ? '#64748b' : (c.daily_volume >= 5 ? '#4ade80' : (c.daily_volume >= 1 ? '#fbbf24' : '#f87171'))};">${c.daily_volume == null ? 'no sales data' : '~' + c.daily_volume.toLocaleString() + ' sold/day'}</div>
             </td>
-            <td class="num margin-val">+${netMargin.toFixed(1)}%</td>
+            <td class="num">${c.sell_city ? Math.round(c.sell_price).toLocaleString() : '<span style="color:#64748b;">no Normal buyer</span>'}
+              ${c.sell_city ? `<br><small style="color:#64748b;">${c.sell_instant ? 'instant sell' : 'sell order'}</small>` : ''}</td>
+            <td class="num ${netProfit >= 0 ? 'profit-val' : 'stale-data'}">
+              ${netProfit >= 0 ? '+' : ''}${Math.round(netProfit).toLocaleString()}
+              ${(() => { const avg = craftAvgProfit(c); const onlyAvg = !c.sell_city || netProfit <= 0;
+                return `<br><small style="color:${avg >= 0 ? '#c4b5fd' : '#f87171'}; cursor:help;" title="${escapeHtml(qualityBreakdown(c))}">🎲 avg ${avg >= 0 ? '+' : ''}${Math.round(avg).toLocaleString()}${onlyAvg ? ' (gamble on quality)' : ''}</small>`; })()}
+              <br><small style="color:#f87171;" title="${c.sell_instant ? 'Market tax' : 'Market tax + 2.5% setup fee'} at ${(marketTaxRate * 100).toFixed(0)}% (${premiumTax ? 'Premium' : 'no Premium'}) already deducted">tax -${Math.round(c.tax_paid || 0).toLocaleString()}</small>
+              ${stationCost > 0 ? `<br><small style="color:#f59e0b;" title="Station usage fee deducted at ${currentStationFee}/100 nutrition">station -${Math.round(stationCost).toLocaleString()}</small>` : ''}
+            </td>
+            <td class="num margin-val">${netMargin >= 0 ? '+' : ''}${netMargin.toFixed(1)}%</td>
           </tr>
         `;
       }).join('');
@@ -2382,12 +2730,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
       updatePagination(totalItems, startIndex, pageSlice.length, totalPages);
 
-      if (filtered.length === 0) {
+      renderWatchlistExtra(filtered);
+
+      if (watchlist.size === 0) {
         tbody.innerHTML = '<tr><td colspan="17" style="text-align:center; padding: 40px; color: var(--text-muted);">' +
           '<div style="font-size:1.5rem; margin-bottom:8px;">⭐</div>' +
           '<strong>Your Watchlist is currently empty.</strong><br>' +
-          '<span style="color:#64748b; font-size:0.84rem; display:inline-block; margin-top:6px;">Click the ★ star icon next to any item in Flips, Black Market, or Crafting to follow it here!</span>' +
+          '<span style="color:#64748b; font-size:0.84rem; display:inline-block; margin-top:6px;">Click the ★ star icon next to any item in Flips, Black Market, Crafting or Enchanting to follow it here!</span>' +
           '</td></tr>';
+        return;
+      }
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="17" style="text-align:center; padding: 18px; color: var(--text-muted);">' +
+          'No flip or Black Market deal for your starred items right now. Their other deals and latest prices are listed below.</td></tr>';
         return;
       }
 
@@ -2454,6 +2809,49 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </tr>
         `;
       }).join('');
+    }
+
+    function renderWatchlistExtra(flipRows) {
+      const box = document.getElementById('watchlist-extra');
+      if (!box) return;
+      if (watchlist.size === 0) { box.innerHTML = ''; return; }
+      const fmt = v => Math.round(Number(v) || 0).toLocaleString();
+      const crafts = craftingData.filter(c => watchlist.has(c.item_id));
+      const enchants = enchantingData.filter(e => e.is_profitable && (watchlist.has(e.base_item_id) || watchlist.has(e.target_item_id)));
+      const withDeal = new Set([...flipRows.map(f => f.item_id), ...crafts.map(c => c.item_id),
+                                ...enchants.flatMap(e => [e.base_item_id, e.target_item_id])]);
+      const names = { ...watchlistNames };
+      [...flipsData, ...blackmarketData, ...craftingData, ...pricesData].forEach(r => { if (r.item_id && r.item_name) names[r.item_id] = r.item_name; });
+      enchantingData.forEach(e => { names[e.base_item_id] = names[e.base_item_id] || e.item_name; });
+      const section = (title, head, rows) => rows.length ? `
+        <h3 style="margin:18px 0 8px; font-size:0.95rem; color:#fde68a;">${title}</h3>
+        <table><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>` : '';
+
+      const craftRows = crafts.map(c => {
+        const net = craftNetProfit(c);
+        return `<tr><td>${renderItemCell(c.item_id, c.item_name, 1)}</td><td><strong>${escapeHtml(c.craft_city)}</strong></td>
+          <td>${renderIngredients(c)}</td><td class="num">${fmt(c.effective_cost)}</td><td>${escapeHtml(c.sell_city)}</td>
+          <td class="num">${fmt(c.sell_price)}</td><td class="num ${net >= 0 ? 'profit-val' : 'stale-data'}">${net >= 0 ? '+' : ''}${fmt(net)}</td></tr>`;
+      });
+      const enchantRows = enchants.map(e => `<tr><td>${renderItemCell(e.base_item_id, e.item_name, 1)}</td><td>${escapeHtml(e.step_label)}</td>
+          <td>${escapeHtml(e.city)}</td><td class="num">${fmt(e.total_cost)}</td><td>${escapeHtml(e.sell_city)}</td>
+          <td class="num">${fmt(e.sell_price)}</td><td class="num ${e.is_profitable ? 'profit-val' : 'stale-data'}">${e.profit_per_item > 0 ? '+' : ''}${fmt(e.profit_per_item)}</td></tr>`);
+
+      const qNames = ['', 'Normal', 'Good', 'Outstanding', 'Excellent', 'Masterpiece'];
+      const priceRows = Array.from(watchlist).filter(id => !withDeal.has(id)).map(id => {
+        const quotes = watchlistPrices[id] || [];
+        const list = quotes.length
+          ? quotes.map(q => `<div style="font-size:0.8rem; white-space:nowrap;"><strong>${escapeHtml(q.city)}</strong>${q.quality > 1 ? ` <small style="color:#94a3b8;">${qNames[q.quality] || 'Q' + q.quality}</small>` : ''}: ` +
+              `sell ${q.sell_price_min ? fmt(q.sell_price_min) : '-'} / buy ${q.buy_price_max ? fmt(q.buy_price_max) : '-'}` +
+              `${q.age_minutes != null ? ` <small style="color:#64748b;">(${q.age_minutes < 60 ? q.age_minutes + 'm' : Math.round(q.age_minutes / 60) + 'h'} ago)</small>` : ''}</div>`).join('')
+          : '<span style="color:#64748b; font-size:0.8rem;">No prices yet: open this item in the in-game market (sniffer) or press Fetch Live Data.</span>';
+        return `<tr><td>${renderItemCell(id, names[id] || id, 1)}</td><td>${list}</td></tr>`;
+      });
+
+      box.innerHTML =
+        section('🔨 Crafting deals', ['Item', 'Craft City', 'Materials', 'Mat Cost', 'Sell City', 'Sell Price', 'Profit'], craftRows) +
+        section('🔮 Enchanting deals', ['Item', 'Step', 'Buy City', 'Total Cost', 'Sell City', 'Sell Price', 'Profit'], enchantRows) +
+        section('📡 Starred items with no deal right now (latest prices)', ['Item', 'Prices by city (lowest sell order / highest buy order)'], priceRows);
     }
 
     function setEnchantBatch(qty, btn) {
@@ -2585,6 +2983,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (!name.includes(search) && !id.includes(search) && !tid.includes(search) && !mat.includes(search)) {
           return false;
         }
+      }
+
+      if (snifferOnly && !(e.is_live_sniffer && e.is_profitable)) {
+        return false;
       }
 
       if (tierFilter !== 'all' && String(e.tier) !== tierFilter) {
@@ -2815,7 +3217,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td><span class="badge badge-tier">${e.item_type}</span></td>
             <td><span class="badge" style="background:#1e1b4b; color:#c4b5fd; font-weight:700;">${e.step_label}</span></td>
             <td>
-              <div style="font-size:0.83rem; color:#f8fafc; font-weight:600;">${escapeHtml(e.enchant_mat_name)}</div>
+              <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">${(e.enchant_mat_id || '').split(' + ').filter(Boolean).map(m => `<img src="https://render.albiononline.com/v1/item/${encodeURIComponent(m)}.png?quality=1" loading="lazy" alt="" style="width:26px;height:26px;object-fit:contain;" title="${escapeHtml(m)}" onerror="this.style.display='none';">`).join('')}
+                <span style="font-size:0.83rem; color:#f8fafc; font-weight:600;">${escapeHtml(e.enchant_mat_name)}</span></div>
             </td>
             <td class="num">${e.base_item_price.toLocaleString()} <small style="color:#94a3b8;">(${e.city})</small></td>
             <td class="num">${e.enchant_mat_total_cost.toLocaleString()}</td>
@@ -2827,6 +3230,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </td>
             <td class="num ${e.is_profitable ? 'profit-val' : 'stale-data'}" style="font-weight:700;">
               ${e.profit_per_item > 0 ? '+' : ''}${e.profit_per_item.toLocaleString()}
+              <br><small style="color:#f87171; font-weight:400;" title="Market tax at ${(marketTaxRate * 100).toFixed(0)}% (${premiumTax ? 'Premium' : 'no Premium'}) and fees already deducted">tax -${Math.max(0, Math.round((e.sell_price || 0) - (e.net_revenue || 0))).toLocaleString()}</small>
             </td>
             <td class="num ${e.is_profitable ? 'margin-val' : 'stale-data'}">
               ${e.margin_pct > 0 ? '+' : ''}${e.margin_pct.toFixed(1)}%
@@ -2922,6 +3326,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         blackmarketData = data.blackmarket || [];
         craftingData = data.crafting || [];
         focusCraftingData = data.focus_crafting || [];
+        snifferCraftingData = data.sniffer_crafting || [];
+        snifferFocusCraftingData = data.sniffer_focus_crafting || [];
         enchantingData = data.enchanting || [];
         artifactMatsData = data.artifact_materials || {};
         pricesData = data.recent_prices || [];
@@ -2977,8 +3383,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const allFlipsForAlerts = [...flipsData, ...blackmarketData];
         checkBrowserNotifications(allFlipsForAlerts, data.last_refresh);
         updateOverridesBadge(data);
+        updatePremiumButton(data);
+        syncWatchlist(data);
 
         // Update live sniffer indicator and status modal
+        if (data.sniffer_process) updateSnifferProcess(data.sniffer_process);
         if (data.sniffer_status) {
           updateSnifferStatus(data.sniffer_status);
           const currentPackets = data.sniffer_status.packet_count || 0;
@@ -3400,6 +3809,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     // Initial load + poll every 1.5s for instant live sniffer responsiveness
     fetchFlips();
+    { const qr = document.getElementById('quality-rolls'); if (qr) qr.value = String(qualityRolls); }
     setInterval(fetchFlips, 1500);
   </script>
 
@@ -3411,52 +3821,35 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 """
 
 
+# Market location ids sent by albiondata-client (ao-bin-dumps formatted/world.txt).
+# Only the markets this app tracks are mapped. Portals, rests (e.g. 1012 Merlyn's
+# Rest) and Smugglers' Dens have separate order books, so their orders are ignored
+# instead of being merged into a city's prices.
 LOCATION_ID_TO_CITY: dict[str, str] = {
-    # Thetford
-    "0000": "Thetford",
-    "0": "Thetford",
-    "4": "Thetford",  # Swamp Cross
-    "0006": "Thetford",
     "0007": "Thetford",
-    "7": "Thetford",
-    "301": "Thetford",  # Thetford Portal
-    "0301": "Thetford",
-    # Lymhurst
-    "1000": "Lymhurst",
-    "1001": "Lymhurst",
     "1002": "Lymhurst",
-    "1006": "Lymhurst",  # Forest Cross
-    "1012": "Lymhurst",
-    "1301": "Lymhurst",  # Lymhurst Portal
-    # Bridgewatch
-    "2000": "Bridgewatch",
-    "2002": "Bridgewatch",  # Steppe Cross
-    "2003": "Bridgewatch",
     "2004": "Bridgewatch",
-    "2301": "Bridgewatch",  # Bridgewatch Portal
-    # Martlock
-    "3002": "Martlock",  # Highland Cross
-    "3004": "Martlock",
-    "3007": "Martlock",
     "3008": "Martlock",
-    "3301": "Martlock",  # Martlock Portal
-    # Fort Sterling
-    "4000": "Fort Sterling",
-    "4001": "Fort Sterling",
     "4002": "Fort Sterling",
-    "4006": "Fort Sterling",  # Mountain Cross
-    "4301": "Fort Sterling",  # Fort Sterling Portal
-    # Caerleon & Black Market
-    "3003": "Black Market",
     "3005": "Caerleon",
-    "3006": "Caerleon",
-    "3013": "Caerleon",  # Caerleon 2
-    # Brecilien
-    "5000": "Brecilien",
-    "5001": "Brecilien",
-    "5002": "Brecilien",
+    "3013-Auction2": "Caerleon",  # Caerleon's second market
+    "3003": "Black Market",
     "5003": "Brecilien",
 }
+
+
+def location_to_city(location_id: Any) -> str | None:
+    """Maps a client LocationId (string, sometimes without leading zeros) to a city."""
+    raw = str(location_id or "").strip()
+    if raw in LOCATION_ID_TO_CITY:
+        return LOCATION_ID_TO_CITY[raw]
+    if raw.isdigit():
+        return LOCATION_ID_TO_CITY.get(raw.zfill(4))
+    return None
+
+
+# How long a market scan from the local sniffer marks a deal as sniffer-sourced.
+SNIFFER_WINDOW_SECONDS = 3600
 
 
 class FlipDataStore:
@@ -3465,7 +3858,7 @@ class FlipDataStore:
     def __init__(self, overrides_path: Path | str | None = None) -> None:
         self._lock = threading.Lock()
         # Server mode keeps this in its data directory (the app directory is read-only under systemd).
-        self.overrides_path = Path(overrides_path) if overrides_path else Path(".cache/overrides.json")
+        self.overrides_path = Path(overrides_path) if overrides_path else CACHE_DIR / "overrides.json"
         self.server: str = "europe"
         self.last_refresh: str = ""
         self.flips: list[dict[str, Any]] = []
@@ -3475,6 +3868,8 @@ class FlipDataStore:
         self._previous_bm_keys: set[tuple[str, int, int]] = set()
         self.crafting: list[dict[str, Any]] = []
         self.focus_crafting: list[dict[str, Any]] = []
+        self.sniffer_crafting: list[dict[str, Any]] = []  # materials priced only from sniffer scans
+        self.sniffer_focus_crafting: list[dict[str, Any]] = []
         self.enchanting: list[dict[str, Any]] = []
         self.artifact_materials: dict[str, Any] = {}
         self.recent_prices: list[dict[str, Any]] = []
@@ -3485,6 +3880,7 @@ class FlipDataStore:
         self.last_history: list[HistoryRecord] = []
         self.last_config: AppConfig | None = None
         self.client: Any = None
+        self.sniffer_manager: Any = None  # albion_flips.sniffer.SnifferManager when enabled
         # Live Sniffer Ingestion Tracking
         self.sniffer_scans: dict[tuple[str, str, int], datetime] = {}
         self.sniffer_packet_count: int = 0
@@ -3501,7 +3897,75 @@ class FlipDataStore:
         self.ingest_listener: Callable[[list[PriceRecord]], Any] | None = None
         # Server mode: receives {(item_id, city, quality): {"min_sell", "max_buy", "n"}} per ingest.
         self.order_observer: Callable[[dict[tuple[str, str, int], dict[str, int]]], Any] | None = None
+        # Premium toggle from the dashboard; None = use config.json's "premium" value.
+        self.premium_override: bool | None = None
+        # Starred item ids, saved on disk (the desktop window's browser storage is not kept).
+        self.watchlist: list[str] = []
         self._load_overrides()
+        self._load_settings()
+
+    def _load_settings(self) -> None:
+        try:
+            data = json.loads((CACHE_DIR / "settings.json").read_text(encoding="utf-8"))
+            if isinstance(data.get("premium"), bool):
+                self.premium_override = data["premium"]
+            if isinstance(data.get("watchlist"), list):
+                self.watchlist = [str(i) for i in data["watchlist"] if i]
+        except (OSError, ValueError):
+            pass
+
+    def _save_settings(self) -> None:
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            (CACHE_DIR / "settings.json").write_text(
+                json.dumps({"premium": self.premium_override, "watchlist": self.watchlist}), encoding="utf-8"
+            )
+        except OSError as e:
+            logger.warning("Could not save settings: %s", e)
+
+    def set_watchlist(self, add: Sequence[str] = (), remove: Sequence[str] = (), clear: bool = False) -> None:
+        with self._lock:
+            items = [] if clear else [i for i in self.watchlist if i not in set(remove)]
+            for item_id in add:
+                if item_id and item_id not in items:
+                    items.append(item_id)
+            self.watchlist = items
+        self._save_settings()
+
+    def _watchlist_prices(self) -> dict[str, list[dict[str, Any]]]:
+        """Latest quotes per city for each starred item (shown when it has no deal)."""
+        if not self.watchlist:
+            return {}
+        watched = set(self.watchlist)
+        now = datetime.now(timezone.utc)
+        out: dict[str, list[dict[str, Any]]] = {}
+        for p in self.last_prices:
+            if p.item_id not in watched or (p.sell_price_min <= 0 and p.buy_price_max <= 0):
+                continue
+            ages = [calculate_age_minutes(d, now) for d, v in ((p.sell_price_min_date, p.sell_price_min), (p.buy_price_max_date, p.buy_price_max)) if v > 0]
+            ages = [a for a in ages if a is not None]
+            out.setdefault(p.item_id, []).append({
+                "city": p.city,
+                "quality": p.quality,
+                "sell_price_min": p.sell_price_min,
+                "buy_price_max": p.buy_price_max,
+                "age_minutes": round(min(ages)) if ages else None,
+            })
+        for rows in out.values():
+            rows.sort(key=lambda r: (r["quality"], r["city"]))
+        return out
+
+    def _effective_config(self, config: AppConfig | None) -> AppConfig:
+        config = config or AppConfig()
+        if self.premium_override is not None and config.premium != self.premium_override:
+            config = replace(config, premium=self.premium_override)
+        return config
+
+    def set_premium(self, premium: bool) -> None:
+        """Switches between premium (4%) and normal (8%) market tax and recalculates every tab."""
+        self.premium_override = bool(premium)
+        self._save_settings()
+        self.recompute()
 
     def _load_overrides(self) -> None:
         cache_file = self.overrides_path
@@ -3617,22 +4081,22 @@ class FlipDataStore:
         aggregated: dict[tuple[str, str, int], dict[str, int]] = {}
 
         for order in orders:
-            raw_price = int(order.get("UnitPriceSilver", 0))
-            if raw_price <= 0:
-                continue
-            # Albion network protocol silver values are multiplied by 10,000
-            price_silver = raw_price // 10000 if raw_price >= 10000 else raw_price
+            # The game sends silver x 10,000 (AODP divides the same way).
+            price_silver = int(order.get("UnitPriceSilver", 0) or 0) // 10000
             if price_silver <= 0:
                 continue
 
             item_id = str(order.get("ItemTypeId", "")).strip()
             if not item_id:
                 continue
+            # The game already writes enchanted ids as T8_CAPE@3; add it if one ever lacks it.
+            enchant = int(order.get("EnchantmentLevel", 0) or 0)
+            if enchant > 0 and "@" not in item_id:
+                item_id = f"{item_id}@{enchant}"
 
-            loc_raw = str(order.get("LocationId", "")).strip()
-            city = LOCATION_ID_TO_CITY.get(loc_raw) or LOCATION_ID_TO_CITY.get(loc_raw.lstrip("0")) or loc_raw
-            if not city:
-                city = "Caerleon" if "Auction2" in loc_raw else "Martlock"
+            city = location_to_city(order.get("LocationId"))
+            if city is None:
+                continue
 
             quality = int(order.get("QualityLevel", 1))
             auction_type = str(order.get("AuctionType", "")).lower()
@@ -3661,6 +4125,17 @@ class FlipDataStore:
                 last_city = city
                 min_sell = data["min_sell"]
                 max_buy = data["max_buy"]
+
+                # The market list arrives in several pages; pages a few seconds apart
+                # belong to the same scan, so keep the best price across them.
+                prev_scan = self.sniffer_scans.get((item_id, city, quality))
+                prev = price_map.get((item_id, city, quality))
+                if prev is not None and prev_scan is not None and (now - prev_scan).total_seconds() < 10:
+                    if prev.sell_price_min > 0 and (min_sell == 0 or prev.sell_price_min < min_sell):
+                        min_sell = prev.sell_price_min
+                    if prev.buy_price_max > max_buy:
+                        max_buy = prev.buy_price_max
+                    data["min_sell"], data["max_buy"] = min_sell, max_buy
 
                 # Mark sniffer timestamp for 0s badge
                 self.sniffer_scans[(item_id, city, quality)] = now
@@ -3783,66 +4258,87 @@ class FlipDataStore:
             "cities": city_counts,
         }
 
-    def ingest_market_histories(self, histories: list[dict[str, Any]], sync: bool = True) -> dict[str, Any]:
-        """Ingests live market sales history stats directly from sniffer in 0s."""
-        if not histories:
+    def ingest_market_histories(self, uploads: list[dict[str, Any]], sync: bool = True) -> dict[str, Any]:
+        """Ingests sales history sniffed when the player opens an item's price chart.
+
+        Payload (albiondata-client lib.MarketHistoriesUpload):
+            {"AlbionId": 2888, "LocationId": "3008", "QualityLevel": 1, "Timescale": 1,
+             "MarketHistories": [{"ItemAmount": 24, "SilverAmount": 960000, "Timestamp": <.NET ticks>}]}
+        SilverAmount is the total silver x 10,000. Points are hourly (Timescale 0) or
+        6-hourly (Timescale 1/2); they are summed into daily buckets to match the
+        AODP time-scale=24 history used everywhere else.
+        """
+        if not uploads:
             return {"histories_processed": 0}
 
         vol_days = self.last_config.volume_days if self.last_config else 3
         now = datetime.now(timezone.utc)
+        processed = 0
         with self._lock:
-            for h in histories:
-                item_id = str(h.get("ItemTypeId", "")).strip()
-                loc_raw = str(h.get("LocationId", "")).strip()
-                city = LOCATION_ID_TO_CITY.get(loc_raw) or LOCATION_ID_TO_CITY.get(loc_raw.lstrip("0")) or loc_raw
-                quality = int(h.get("QualityLevel", 1))
-                item_count = int(h.get("ItemCount", 0))
-                raw_avg = int(h.get("AvgPrice", 0))
-                avg_price = raw_avg // 10000 if raw_avg >= 10000 else raw_avg
-                ts = str(h.get("Timestamp", ""))
+            history_index = {(h.item_id, h.location, h.quality): h for h in self.last_history}
+            for upload in uploads:
+                item_id = str(upload.get("AlbionIdString") or "").strip()
+                if not item_id:
+                    try:
+                        item_id = ALBION_ID_TO_ITEM.get(int(upload.get("AlbionId", 0)), "")
+                    except (TypeError, ValueError):
+                        item_id = ""
+                city = location_to_city(upload.get("LocationId"))
+                points = upload.get("MarketHistories") or []
+                if not item_id or city is None or not points:
+                    continue
+                quality = int(upload.get("QualityLevel", 1) or 1)
 
-                matched = None
-                for hr in self.last_history:
-                    if hr.item_id == item_id and hr.location == city and hr.quality == quality:
-                        matched = hr
-                        break
-                pt = HistoryPoint(item_count=item_count, avg_price=avg_price, timestamp=ts)
-                if matched:
-                    if not any(p.timestamp == ts for p in matched.data):
-                        matched.data.append(pt)
+                daily: dict[str, list[int]] = {}
+                for pt in points:
+                    try:
+                        ticks = int(pt.get("Timestamp", 0))
+                        amount = int(pt.get("ItemAmount", 0))
+                        silver = int(pt.get("SilverAmount", 0))
+                    except (TypeError, ValueError):
+                        continue
+                    if ticks <= _TICKS_AT_EPOCH or amount < 0:
+                        continue
+                    day = datetime.fromtimestamp((ticks - _TICKS_AT_EPOCH) / 10_000_000, tz=timezone.utc)
+                    bucket = daily.setdefault(day.strftime("%Y-%m-%dT00:00:00"), [0, 0])
+                    bucket[0] += amount
+                    bucket[1] += silver
+                if not daily:
+                    continue
+
+                record = history_index.get((item_id, city, quality))
+                if record is None:
+                    record = HistoryRecord(location=city, item_id=item_id, quality=quality, data=[])
+                    self.last_history.append(record)
+                    history_index[(item_id, city, quality)] = record
+                by_day = {p.timestamp: p for p in record.data}
+                for day_ts, (amount, silver) in daily.items():
+                    avg = silver // amount // 10000 if amount > 0 else 0
+                    existing = by_day.get(day_ts)
+                    # A partial day (hourly scale) must not shrink a fuller daily total.
+                    if existing is None or amount >= existing.item_count:
+                        by_day[day_ts] = HistoryPoint(item_count=amount, avg_price=avg, timestamp=day_ts)
+                record.data = sorted(by_day.values(), key=lambda p: p.timestamp)
+                processed += 1
+
+                daily_vol = compute_daily_volume(history_index, item_id, city, quality=quality, volume_days=vol_days)
+                avg_price = record.data[-1].avg_price if record.data else 0
+                if daily_vol is None:
+                    liq, verdict = "untracked", "❓ Sales history logged"
+                elif daily_vol >= 20.0:
+                    liq, verdict = "high", f"🔥 VERIFIED HIGH DEMAND (~{round(daily_vol)} sold/d) • Safe to mass enchant!"
+                elif daily_vol >= 5.0:
+                    liq, verdict = "active", f"🟢 VERIFIED ACTIVE (~{round(daily_vol)} sold/d) • Healthy trade velocity."
+                elif daily_vol >= 1.0:
+                    liq, verdict = "slow", f"🟡 VERIFIED SLOW (~{daily_vol:.1f} sold/d) • Low turnover volume."
                 else:
-                    self.last_history.append(HistoryRecord(
-                        location=city,
-                        item_id=item_id,
-                        quality=quality,
-                        data=[pt],
-                    ))
+                    liq, verdict = "dead", f"⚠️ VERIFIED DEAD ITEM (0 sales in last {vol_days} days) • DO NOT MASS ENCHANT!"
 
-                daily_vol = compute_daily_volume(self.last_history, item_id, city, quality=quality, volume_days=vol_days)
-                h_name = get_human_name(item_id)
                 t = parse_tier(item_id) or 4
                 e = parse_enchant(item_id)
-
-                if daily_vol is not None:
-                    if daily_vol >= 20.0:
-                        liq = "high"
-                        verdict = f"🔥 VERIFIED HIGH DEMAND (~{round(daily_vol)} sold/d) • Safe to mass enchant!"
-                    elif daily_vol >= 5.0:
-                        liq = "active"
-                        verdict = f"🟢 VERIFIED ACTIVE (~{round(daily_vol)} sold/d) • Healthy trade velocity."
-                    elif daily_vol >= 1.0:
-                        liq = "slow"
-                        verdict = f"🟡 VERIFIED SLOW (~{daily_vol:.1f} sold/d) • Low turnover volume."
-                    else:
-                        liq = "dead"
-                        verdict = "⚠️ VERIFIED DEAD ITEM (0 sales in last 3 days) • DO NOT MASS ENCHANT!"
-                else:
-                    liq = "untracked"
-                    verdict = "❓ Sales history logged"
-
                 event = {
                     "item_id": item_id,
-                    "item_name": h_name,
+                    "item_name": get_human_name(item_id),
                     "tier": t,
                     "enchant": e,
                     "step_label": f"{t}.{e}",
@@ -3862,12 +4358,41 @@ class FlipDataStore:
         else:
             self.schedule_recompute(delay=0.25)
 
-        return {"histories_processed": len(histories)}
+        return {"histories_processed": processed}
+
+    def _keep_sniffer_prices(self, prices: Sequence[PriceRecord]) -> tuple[list[PriceRecord], bool]:
+        """Keeps sniffer-captured quotes that are newer than what the API returned.
+
+        A refresh replaces all prices with the API's copy, which can lag behind what the
+        local sniffer just saw (or not cover the item at all). Returns (prices, changed).
+        """
+        if not self.sniffer_scans:
+            return list(prices), False
+        old = {(p.item_id, p.city, p.quality): p for p in self.last_prices}
+        merged = list(prices)
+        index = {(p.item_id, p.city, p.quality): i for i, p in enumerate(merged)}
+        changed = False
+
+        def newest(p: PriceRecord) -> str:
+            return max(p.sell_price_min_date or "", p.buy_price_max_date or "")
+
+        for key in self.sniffer_scans:
+            mine = old.get(key)
+            if mine is None:
+                continue
+            i = index.get(key)
+            if i is None:
+                merged.append(mine)
+                changed = True
+            elif newest(mine) > newest(merged[i]):
+                merged[i] = mine
+                changed = True
+        return merged, changed
 
     def recompute(self) -> None:
         if not self.last_prices:
             return
-        config = self.last_config or AppConfig()
+        config = self._effective_config(self.last_config)
         now = datetime.now(timezone.utc)
         opps = analyze_flips(
             prices=self.last_prices,
@@ -3908,19 +4433,41 @@ class FlipDataStore:
         now: datetime | None = None,
         config: AppConfig | None = None,
     ) -> None:
-        if prices:
-            self.last_prices = list(prices)
-        if history:
-            self.last_history = list(history)
-        if config:
-            self.last_config = config
         if now is None:
             now = datetime.now(timezone.utc)
         elif now.tzinfo is None:
             now = now.replace(tzinfo=timezone.utc)
 
-        if config is None:
-            config = AppConfig()
+        # Drop sniffer scans older than an hour and index the rest by item id.
+        self.sniffer_scans = {k: v for k, v in self.sniffer_scans.items() if (now - v).total_seconds() < SNIFFER_WINDOW_SECONDS}
+
+        sniffer_kept = False
+        if prices:
+            if prices is not self.last_prices:
+                prices, sniffer_kept = self._keep_sniffer_prices(prices)
+            self.last_prices = list(prices)
+        if history:
+            self.last_history = list(history)
+        if config:
+            self.last_config = config
+        raw_config = config if config is not None else self.last_config
+        config = self._effective_config(raw_config)
+
+        # Flips computed by the caller miss sniffer prices newer than the API and the
+        # dashboard's premium setting: redo them from the merged prices when needed.
+        if self.last_prices and (sniffer_kept or (raw_config or AppConfig()).premium != config.premium):
+            opportunities = analyze_flips(
+                prices=self.last_prices,
+                history=self.last_history,
+                config=config,
+                now=now,
+                fulfilled_orders=self.fulfilled_orders,
+                price_overrides=self.price_overrides,
+            )
+            prices = self.last_prices
+        scans_by_item: dict[str, list[tuple[str, int, datetime]]] = {}
+        for (s_item, s_city, s_quality), s_time in self.sniffer_scans.items():
+            scans_by_item.setdefault(s_item, []).append((s_city, s_quality, s_time))
 
         serialized_flips = []
         serialized_blackmarket = []
@@ -3968,10 +4515,10 @@ class FlipDataStore:
             # Live Sniffer Detection
             is_sniffer = False
             sniffer_age_secs = None
-            for scan_key, scan_time in self.sniffer_scans.items():
-                if scan_key[0] == o.item_id and scan_key[2] == o.quality and (scan_key[1] == o.buy_city or scan_key[1] == o.sell_city):
+            for scan_city, scan_quality, scan_time in scans_by_item.get(o.item_id, ()):
+                if scan_quality == o.quality and scan_city in (o.buy_city, o.sell_city):
                     age_s = max(0.0, (now - scan_time).total_seconds())
-                    if age_s < 600:
+                    if age_s < SNIFFER_WINDOW_SECONDS:
                         is_sniffer = True
                         if sniffer_age_secs is None or age_s < sniffer_age_secs:
                             sniffer_age_secs = round(age_s)
@@ -4033,12 +4580,13 @@ class FlipDataStore:
             unverified = x.get("history_missing") or "no_history" in (x.get("price_note") or "")
             return (1 if unverified else 0, -x["profit_per_item"])
 
+        # Rows priced by a live sniffer scan are always kept, whatever their rank.
         serialized_flips.sort(key=_keep_order)
-        serialized_flips = serialized_flips[:2500]
+        serialized_flips = [x for i, x in enumerate(serialized_flips) if i < 2500 or x.get("is_live_sniffer")]
         serialized_flips.sort(key=lambda x: x["profit_per_item"], reverse=True)
 
         serialized_blackmarket.sort(key=_keep_order)
-        serialized_blackmarket = serialized_blackmarket[:2500]
+        serialized_blackmarket = [x for i, x in enumerate(serialized_blackmarket) if i < 2500 or x.get("is_live_sniffer")]
         serialized_blackmarket.sort(key=lambda x: x["profit_per_item"], reverse=True)
 
 
@@ -4077,7 +4625,7 @@ class FlipDataStore:
                     sniffer_secs = None
                     if is_p_sniffer:
                         age_s = max(0.0, (now - self.sniffer_scans[(p.item_id, p.city, p.quality)]).total_seconds())
-                        if age_s < 600:
+                        if age_s < SNIFFER_WINDOW_SECONDS:
                             sniffer_secs = round(age_s)
                             age_minutes = round(age_s / 60.0, 1)
                         else:
@@ -4104,50 +4652,45 @@ class FlipDataStore:
         # Crafting calculations using synchronized clean_prices and overrides
         serialized_crafting: list[dict[str, Any]] = []
         serialized_focus_crafting: list[dict[str, Any]] = []
-        if clean_prices:
-            craft_ops = analyze_crafting(
-                clean_prices,
-                config,
-                focus=False,
-                item_names=ITEM_NAMES,
-                now=now,
-                fulfilled_orders=self.fulfilled_orders,
-                price_overrides=self.price_overrides,
-                reference=self.reference,
-            )
-            for c in craft_ops[:500]:
-                serialized_crafting.append({
-                    "item_id": c.item_id,
-                    "item_name": c.item_name,
-                    "craft_type": c.craft_type,
-                    "craft_city": c.craft_city,
-                    "sell_city": c.sell_city,
-                    "material_cost": c.material_cost,
-                    "effective_cost": c.effective_cost,
-                    "sell_price": c.sell_price,
-                    "profit_per_item": c.profit_per_item,
-                    "margin_pct": c.margin_pct,
-                    "resource_return_rate": c.resource_return_rate,
-                    "ingredients_desc": c.ingredients_desc,
-                    "city_bonus": c.city_bonus,
-                    "tier": c.tier,
-                    "enchant": c.enchant,
-                    "weight": get_item_weight(c.item_id),
-                    "item_value": get_item_value(c.item_id),
-                })
 
-            focus_craft_ops = analyze_crafting(
-                clean_prices,
-                config,
-                focus=True,
-                item_names=ITEM_NAMES,
-                now=now,
-                fulfilled_orders=self.fulfilled_orders,
-                price_overrides=self.price_overrides,
-                reference=self.reference,
-            )
-            for c in focus_craft_ops[:150]:
-                serialized_focus_crafting.append({
+        def scan_age(item_id: str, city: str, any_quality: bool = False) -> int | None:
+            """Seconds since the sniffer captured item_id in city (quality 1 unless any_quality)."""
+            best = None
+            for s_city, s_quality, s_time in scans_by_item.get(item_id, ()):
+                if s_city == city and (any_quality or s_quality == 1):
+                    age = round(max(0.0, (now - s_time).total_seconds()))
+                    best = age if best is None else min(best, age)
+            return best
+
+        def serialize_crafts(ops: Sequence[Any], limit: int) -> list[dict[str, Any]]:
+            """Profitable crafts only, at most `limit` per category (plus every sniffer-priced one)."""
+            rows: list[dict[str, Any]] = []
+            per_type: dict[str, int] = {}
+            best_rolls = quality_chances(MAX_QUALITY_ROLLS)
+            for c in ops:
+                # Profitable as Normal, or on average once better quality rolls are counted
+                # (the dashboard picks how many rolls the player gets).
+                avg_revenue = sum(ch * n for ch, n in zip(best_rolls, c.quality_nets or [0.0] * 5))
+                cheapest_cost = min([c.effective_cost] + [o["effective_cost"] for o in c.city_options])
+                if c.profit_per_item <= 0 and avg_revenue - cheapest_cost <= 0:
+                    continue
+                ingredients = []
+                ages = []
+                for ing in c.ingredients:
+                    age = scan_age(ing["id"], ing["city"], any_quality=True)
+                    if age is not None:
+                        ages.append(age)
+                    ingredients.append({**ing, "is_live_sniffer": age is not None, "sniffer_age_seconds": age})
+                output_age = scan_age(c.item_id, c.sell_city)
+                if output_age is not None:
+                    ages.append(output_age)
+                is_sniffer = bool(ages)
+                # Keep the top deals of each category plus every deal that uses a sniffer price.
+                rank = per_type.get(c.craft_type, 0)
+                if rank >= limit and not is_sniffer:
+                    continue
+                per_type[c.craft_type] = rank + 1
+                rows.append({
                     "item_id": c.item_id,
                     "item_name": c.item_name,
                     "craft_type": c.craft_type,
@@ -4159,13 +4702,60 @@ class FlipDataStore:
                     "profit_per_item": c.profit_per_item,
                     "margin_pct": c.margin_pct,
                     "resource_return_rate": c.resource_return_rate,
+                    "city_return_rates": c.city_return_rates,
+                    # Other profitable craft cities, shown when the Craft City filter picks one.
+                    "quality_nets": c.quality_nets,
+                    "quality_exits": c.quality_exits,
+                    "expected_profit": round(c.expected_profit, 1),
+                    "city_options": [
+                        {**opt, "effective_cost": round(opt["effective_cost"], 1),
+                         "profit_per_item": round(opt["profit_per_item"], 1), "margin_pct": round(opt["margin_pct"], 2),
+                         "returned_value": round(opt["returned_value"], 1),
+                         "sniffed": [scan_age(ing["id"], src, any_quality=True) is not None
+                                     for ing, src in zip(c.ingredients, opt["cities"])]}
+                        for opt in c.city_options
+                    ],
                     "ingredients_desc": c.ingredients_desc,
+                    "ingredients": ingredients,
+                    "tax_paid": round(c.tax_paid, 1),
+                    "returned_value": round(c.returned_value, 1),
+                    "craft_silver": round(c.craft_silver, 1),
+                    "sell_instant": c.sell_instant,
                     "city_bonus": c.city_bonus,
                     "tier": c.tier,
                     "enchant": c.enchant,
                     "weight": get_item_weight(c.item_id),
-                    "item_value": get_item_value(c.item_id),
+                    "item_value": round(c.item_value, 2),
+                    "daily_volume": round(c.daily_volume, 1) if c.daily_volume is not None else None,
+                    "is_live_sniffer": is_sniffer,
+                    "output_sniffed": output_age is not None,
+                    "sniffer_age_seconds": min(ages) if ages else None,
                 })
+            return rows
+
+        # "Sniffer scans only": materials priced exclusively from sniffer captures.
+        serialized_sniffer_crafting: list[dict[str, Any]] = []
+        serialized_sniffer_focus_crafting: list[dict[str, Any]] = []
+        sniffed_quotes = {(item, city) for (item, city, _quality) in self.sniffer_scans}
+        if clean_prices:
+            runs = [(False, 200, serialized_crafting, None), (True, 200, serialized_focus_crafting, None)]
+            if sniffed_quotes:
+                runs += [(False, 200, serialized_sniffer_crafting, sniffed_quotes),
+                         (True, 200, serialized_sniffer_focus_crafting, sniffed_quotes)]
+            for focus, limit, target, quotes in runs:
+                craft_ops = analyze_crafting(
+                    clean_prices,
+                    config,
+                    focus=focus,
+                    item_names=ITEM_NAMES,
+                    now=now,
+                    fulfilled_orders=self.fulfilled_orders,
+                    price_overrides=self.price_overrides,
+                    history=self.last_history,
+                    material_quotes=quotes,
+                    reference=self.reference,  # server mode: cap sell orders at the 7-day average
+                )
+                target.extend(serialize_crafts(craft_ops, limit))
 
         # Enchanting & Artifact Foundry calculations
         serialized_enchanting: list[dict[str, Any]] = []
@@ -4190,19 +4780,18 @@ class FlipDataStore:
                 is_gear_sniffer = False
                 is_mat_sniffer = False
                 e_sniffer_age_secs = None
-                for scan_key, scan_time in self.sniffer_scans.items():
-                    scanned_item = scan_key[0]
-                    scanned_city = scan_key[1]
-                    age_s = max(0.0, (now - scan_time).total_seconds())
-                    if age_s < 900 and (scanned_city == e.city or scanned_city == e.sell_city):
-                        if scanned_item in (e.base_item_id, e.target_item_id):
-                            is_gear_sniffer = True
-                            if e_sniffer_age_secs is None or age_s < e_sniffer_age_secs:
-                                e_sniffer_age_secs = round(age_s)
-                        elif ("RUNE" in scanned_item or "SOUL" in scanned_item or "RELIC" in scanned_item) and (scanned_item in e.enchant_mat_id):
+                for scanned_item in (e.base_item_id, e.target_item_id, *e.enchant_mat_id.split(" + ")):
+                    is_mat = scanned_item not in (e.base_item_id, e.target_item_id)
+                    for scanned_city, _, scan_time in scans_by_item.get(scanned_item, ()):
+                        if scanned_city not in (e.city, e.sell_city):
+                            continue
+                        age_s = max(0.0, (now - scan_time).total_seconds())
+                        if is_mat:
                             is_mat_sniffer = True
-                            if e_sniffer_age_secs is None or age_s < e_sniffer_age_secs:
-                                e_sniffer_age_secs = round(age_s)
+                        else:
+                            is_gear_sniffer = True
+                        if e_sniffer_age_secs is None or age_s < e_sniffer_age_secs:
+                            e_sniffer_age_secs = round(age_s)
 
                 is_any_sniffer = is_gear_sniffer or is_mat_sniffer
                 opp_sniffer_info.append((e, is_any_sniffer, e_sniffer_age_secs, is_gear_sniffer))
@@ -4284,6 +4873,8 @@ class FlipDataStore:
             self.bm_recent_arrivals = sorted(recent_bm_arrivals, key=lambda x: x["age"])[:6]
             self.crafting = serialized_crafting
             self.focus_crafting = serialized_focus_crafting
+            self.sniffer_crafting = serialized_sniffer_crafting
+            self.sniffer_focus_crafting = serialized_sniffer_focus_crafting
             self.enchanting = serialized_enchanting
             self.artifact_materials = artifact_mats_dict
             self.recent_prices = serialized_prices
@@ -4315,9 +4906,17 @@ class FlipDataStore:
 
             profitable_enchant_count = len([e for e in self.enchanting if e.get("is_profitable")])
 
+            sniffer_process = self.sniffer_manager.status() if self.sniffer_manager is not None else {"state": "disabled"}
+            if sniffer_process.get("location_id"):
+                sniffer_process["location_city"] = location_to_city(sniffer_process["location_id"])
+            tax_config = self._effective_config(self.last_config)
             return {
                 "server": self.server,
                 "last_refresh": self.last_refresh,
+                "premium": tax_config.premium,
+                "tax_rate": tax_config.active_tax_rate,
+                "setup_fee_rate": tax_config.setup_fee_rate,
+                "sniffer_process": sniffer_process,
                 "sniffer_status": {
                     "active": sniffer_active,
                     "packet_count": self.sniffer_packet_count,
@@ -4331,27 +4930,19 @@ class FlipDataStore:
                 "bm_recent_arrivals": list(self.bm_recent_arrivals),
                 "crafting": list(self.crafting),
                 "focus_crafting": list(self.focus_crafting),
+                "sniffer_crafting": list(self.sniffer_crafting),
+                "sniffer_focus_crafting": list(self.sniffer_focus_crafting),
                 "enchanting": list(self.enchanting),
                 "enchant_count": profitable_enchant_count,
                 "artifact_materials": self.artifact_materials,
                 "recent_prices": list(self.recent_prices),
                 "live_sniffer_events": list(self.live_sniffer_events),
+                "watchlist": list(self.watchlist),
+                "watchlist_prices": self._watchlist_prices(),
+                "watchlist_names": {i: get_human_name(i) for i in self.watchlist},
                 "overrides_count": len(self.fulfilled_orders) + len(self.price_overrides),
                 "overrides": overrides_list,
             }
-
-
-class DualStackHTTPServer(ThreadingMixIn, HTTPServer):
-    """Dual stack multithreaded server listening on IPv6 and IPv4 simultaneously."""
-    daemon_threads = True
-    address_family = socket.AF_INET6
-
-    def server_bind(self) -> None:
-        try:
-            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
-        except (AttributeError, OSError):
-            pass
-        super().server_bind()
 
 
 class FlipRequestHandler(BaseHTTPRequestHandler):
@@ -4395,22 +4986,18 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
         except Exception:
             body = {}
 
-        is_history = "markethistories.ingest" in clean_path or (isinstance(body, dict) and ("Histories" in body or "histories" in body))
+        is_history = "markethistories.ingest" in clean_path or (isinstance(body, dict) and "MarketHistories" in body)
         if is_history:
             try:
-                histories = []
-                if isinstance(body, list):
-                    histories = body
-                elif isinstance(body, dict):
-                    histories = body.get("Histories") or body.get("histories") or []
-                    if not histories and "ItemTypeId" in body and "ItemCount" in body:
-                        histories = [body]
-                res = self.store.ingest_market_histories(histories, sync=False)
-                self._send_json({"status": "ok", "ingested_histories": len(histories), "details": res})
+                uploads = body if isinstance(body, list) else [body]
+                res = self.store.ingest_market_histories(uploads, sync=False)
+                self._send_json({"status": "ok", "ingested_histories": res.get("histories_processed", 0), "details": res})
             except Exception as e:
                 logger.error("Error in /api/ingest histories: %s", e)
                 self.send_response(500)
                 self.end_headers()
+        elif clean_path.endswith(".ingest") and "marketorders.ingest" not in clean_path:
+            self._send_json({"status": "ignored"})
         elif "marketorders.ingest" in clean_path or clean_path.startswith("/api/ingest"):
             try:
                 orders = []
@@ -4431,8 +5018,6 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
             self._send_json(self.store.get_data())
         elif clean_path == "/api/fulfill":
             try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
                 item_id = body.get("item_id", "")
                 city = body.get("city", "Black Market")
                 quality = int(body.get("quality", 1))
@@ -4445,8 +5030,6 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
                 self.end_headers()
         elif clean_path == "/api/override":
             try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
                 item_id = body.get("item_id", "")
                 city = body.get("city", "Black Market")
                 quality = int(body.get("quality", 1))
@@ -4458,13 +5041,32 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
                 logger.error("Error in /api/override: %s", e)
                 self.send_response(500)
                 self.end_headers()
+        elif clean_path in ("/api/sniffer/start", "/api/sniffer/stop", "/api/sniffer/restart", "/api/sniffer/show"):
+            manager = self.store.sniffer_manager
+            if manager is None:
+                self._send_json({"status": "disabled"})
+                return
+            action = clean_path.rsplit("/", 1)[-1]
+            if action == "show":
+                manager.show_window()
+            else:
+                # start/restart can take a while (download, UAC prompt): run in the background.
+                threading.Thread(target=getattr(manager, action), daemon=True).start()
+            self._send_json({"status": "ok", "sniffer_process": manager.status()})
+        elif clean_path == "/api/watchlist":
+            if isinstance(body, dict):
+                as_list = lambda v: [str(x) for x in v] if isinstance(v, list) else ([str(v)] if v else [])
+                self.store.set_watchlist(add=as_list(body.get("add")), remove=as_list(body.get("remove")), clear=bool(body.get("clear")))
+            self._send_json({"status": "ok", "watchlist": list(self.store.watchlist)})
+        elif clean_path == "/api/settings":
+            if isinstance(body, dict) and isinstance(body.get("premium"), bool):
+                self.store.set_premium(body["premium"])
+            self._send_json(self.store.get_data())
         elif clean_path == "/api/clear_overrides":
             self.store.clear_overrides()
             self._send_json(self.store.get_data())
         elif clean_path == "/api/refresh_item":
             try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
                 item_id = body.get("item_id", "")
                 if item_id:
                     self.store.refresh_single_item(item_id)
@@ -4488,10 +5090,18 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(content)))
             self.end_headers()
             self.wfile.write(content)
+        elif clean_path == "/logo.svg" and asset_file("logo.svg").is_file():
+            data = asset_file("logo.svg").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "max-age=86400")
+            self.end_headers()
+            self.wfile.write(data)
         elif clean_path == "/favicon.ico":
-            icon_path = Path("assets/icon.ico")
+            icon_path = asset_file("icon.ico")
             if not icon_path.is_file():
-                icon_path = Path("assets/icon.png")
+                icon_path = asset_file("icon.png")
             if icon_path.is_file():
                 try:
                     with open(icon_path, "rb") as f:
@@ -4528,6 +5138,9 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
 
 class LocalThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
+
+
+LoopbackHTTPServer = LocalThreadingHTTPServer  # name used on main
 
 
 def start_web_server(

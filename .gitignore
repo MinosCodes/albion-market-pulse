@@ -15,3 +15,5 @@ albiondata-client/
 data/server/
 client/windows/client.json
 
+/AlbionMarketPulse.exe
+/AlbionAnalyser-Setup-*.exe

@@ -151,6 +151,13 @@ python run_desktop.py                            # or: python -m albion_flips.cl
 On Windows, `Setup-Windows.bat` does all of this and creates a desktop shortcut.
 Details: [docs/DESKTOP.md](docs/DESKTOP.md).
 
+Without Python: `build_exe.bat` builds `dist\AlbionMarketPulse.exe`, a native window, and
+`build_installer.bat` packs it into a Setup.exe ([Inno Setup 6](https://jrsoftware.org/isinfo.php)).
+The desktop app starts the official Albion Data Client in the background (Windows, needs
+[Npcap](https://npcap.com/#download)) so your market visits stream in live; switch it off under
+`"sniffer"` in `config.json`. Crafting uses every recipe of the game, generated from ao-bin-dumps
+by `tools/build_recipes.py`, with the return rate of each crafting city.
+
 ## Is this allowed?
 
 Albion Market Pulse follows the rule Sandbox Interactive's technical lead gave for the Albion Data

@@ -24,18 +24,20 @@ def test_parse_tier_and_enchant():
 
 
 def test_item_weights():
-    # Bag and cape
-    assert get_item_weight("T4_BAG") == 1.5
-    assert get_item_weight("T8_CAPE") == 1.5
+    # Exact weights from the game data (ao-bin-dumps items.json)
+    assert get_item_weight("T4_BAG") == 3.4
+    assert get_item_weight("T8_CAPE") == 8.5
+    assert get_item_weight("T4_RUNE") == 0.05
+    assert get_item_weight("T8_PLANKS") == 2.56
+    assert get_item_weight("T4_PLANKS_LEVEL1@1") == 0.51
 
-    # Runes and tomes
-    assert get_item_weight("T4_RUNE") == 0.1
+    # Unknown ids fall back to the estimate
     assert get_item_weight("T8_TOME") == 0.1
 
     # Resources
     t4_planks = get_item_weight("T4_PLANKS")
     t8_planks = get_item_weight("T8_PLANKS")
-    assert 0.2 <= t4_planks <= 0.5
+    assert 0.2 <= t4_planks <= 0.6
     assert t8_planks > t4_planks
 
     # Weapons (2H heavier than 1H)
