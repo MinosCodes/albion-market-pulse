@@ -24,7 +24,11 @@ REFINE = ("METALBAR", "CLOTH", "PLANKS", "STONEBLOCK", "LEATHER")
 CRAFT = ("gear", "saddler", "cook", "alchemist")
 ISLAND = ("crops", "herbs", "animals")
 RAW_OF = {"METALBAR": "ORE", "CLOTH": "FIBER", "PLANKS": "WOOD", "STONEBLOCK": "ROCK", "LEATHER": "HIDE"}
-UNSAFE_CITIES = {"Caerleon", "Black Market"}  # reaching them means red zones
+UNSAFE_CITIES = {"Caerleon", "Black Market", "Brecilien"}  # red zones, or the Mists for Brecilien
+
+
+def unsafe_reason(*cities: str) -> str:
+    return "needs the Mists" if "Brecilien" in cities and not ({"Caerleon", "Black Market"} & set(cities)) else "needs red zones"
 MAX_TIER = 8
 NAME_RE = re.compile(r"^[A-Za-z0-9 _-]{0,30}$")
 

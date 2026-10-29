@@ -96,6 +96,11 @@ def test_focus_limit_and_caerleon_purchases() -> None:
     crop = dict(ISLAND["crops"][0], seed_city="Caerleon")
     es = overview.build_entries(_prof(), [], [], [], [], {"crops": [crop]}, REFS)
     assert es[0]["why_not"] == "needs red zones"
+    # Brecilien (prices come from main) is only reached through the Mists
+    brec = [dict(CRAFT[0], sell_city="Brecilien")]
+    refs = {("T4_CLOTH", "Brecilien", 1): Reference(avg7=250, vol7=10000)}
+    es = overview.build_entries(_prof(refine={"CLOTH": 4}), [dict(FLIPS[0], sell_city="Brecilien")], [], brec, [], {}, refs)
+    assert {e["why_not"] for e in es} == {"needs the Mists"}
 
 
 def test_ranking_and_trend() -> None:

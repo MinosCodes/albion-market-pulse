@@ -71,7 +71,7 @@ def build_entries(prof: dict[str, Any], flips: list[dict[str, Any]], blackmarket
         if safe and (a in player.UNSAFE_CITIES or b in player.UNSAFE_CITIES):
             trip = None  # buying in Caerleon also means getting there first
         if trip is None:
-            why = "needs red zones"
+            why = player.unsafe_reason(a, b)
             trip = _travel_h(w, a, "Caerleon" if bm else b, True) or 1.0
         units = f.get("units_per_day") or 0
         price = f.get("buy_price") or 0
@@ -129,7 +129,7 @@ def build_entries(prof: dict[str, Any], flips: list[dict[str, Any]], blackmarket
         need = (prof["refine"] if kind == "refine" else prof["craft"]).get(sub, 0)
         why = f"needs T{tier} {sub.lower() if kind == 'refine' else sub}" if tier > need else None
         if why is None and safe and (sell in player.UNSAFE_CITIES or c.get("craft_city") in player.UNSAFE_CITIES):
-            why = "needs red zones"
+            why = player.unsafe_reason(sell, c.get("craft_city", ""))
         name = c.get("item_name") or iid
         where = c.get("craft_city") or "any city"
         out.append({
@@ -156,7 +156,8 @@ def build_entries(prof: dict[str, Any], flips: list[dict[str, Any]], blackmarket
             "tier": r["tier"], "per_day": r["profit_day"], "unit": r["profit_per_seed"], "active_h": ISLAND_ACTIVE_H,
             "volume": r.get("volume"),
             "why_not": f"needs T{r['locked']} {'herbs' if r['kind'] == 'herb' else 'crops'}" if r.get("locked")
-            else "needs red zones" if safe and {r.get("seed_city"), r.get("sell_city")} & player.UNSAFE_CITIES else None,
+            else player.unsafe_reason(r.get("seed_city", ""), r.get("sell_city", ""))
+            if safe and {r.get("seed_city"), r.get("sell_city")} & player.UNSAFE_CITIES else None,
             "steps": [f"Buy seeds ({r['seed_price']:,} in {r['seed_city']}) and plant them on your island.",
                       f"Harvest after {r['grow_h']} h; {round(r['seed_back'] * 100)} % of the seeds come back.",
                       f"Sell the crops in {r['sell_city']} for {r['crop_net']:,} each after tax."],
@@ -169,7 +170,8 @@ def build_entries(prof: dict[str, Any], flips: list[dict[str, Any]], blackmarket
             "tier": r["tier"], "per_day": r["profit_day"], "unit": r["profit"], "active_h": ISLAND_ACTIVE_H,
             "volume": r.get("volume"),
             "why_not": f"needs T{r['locked']} animals" if r.get("locked")
-            else "needs red zones" if safe and {r.get("baby_city"), r.get("sell_city")} & player.UNSAFE_CITIES else None,
+            else player.unsafe_reason(r.get("baby_city", ""), r.get("sell_city", ""))
+            if safe and {r.get("baby_city"), r.get("sell_city")} & player.UNSAFE_CITIES else None,
             "steps": [f"Buy babies for {r['baby_price']:,} in {r['baby_city']} and put them on your pastures.",
                       f"Feed them ({r['food']['units'] if r.get('food') else '?'} × {r['food']['name'] if r.get('food') else 'food'}) for {r['grow_h']} h.",
                       f"Sell the grown animal in {r['sell_city']} for {r['grown_net']:,} after tax; {round(r['offspring'] * 100)} % chance of a new baby."],
