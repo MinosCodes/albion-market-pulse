@@ -61,6 +61,16 @@
     @media (max-width: 1100px) { .sx-form-island { grid-template-columns: repeat(4, 1fr); } }
     @media (max-width: 600px) { .sx-form-island { grid-template-columns: 1fr 1fr; } }
     .sx-pill.warn { background: #713f12; color: #fde68a; }
+    .sx-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+    .sx-box { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: #0f131f; min-width: 0; }
+    .sx-box h3 { margin: 0 0 6px; font-size: 0.86rem; color: var(--text); }
+    .sx-box ol { margin: 0; padding-left: 18px; font-size: 0.84rem; line-height: 1.55; }
+    .sx-box li { overflow-wrap: anywhere; }
+    .sx-tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-top: 14px; }
+    .sx-tiers fieldset { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px 10px; margin: 0; }
+    .sx-tiers legend { color: var(--text-muted); font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; padding: 0 4px; }
+    .sx-tiers label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 0.85rem; padding: 3px 0; }
+    .sx-tiers .sx-num-in { width: 64px; }
     .nav-tabs { overflow-x: auto; max-width: 100%; scrollbar-width: thin; } /* many tabs: scroll the bar, not the page */
     .sx-note { font-size: 0.82rem; color: var(--text-muted); margin-top: 8px; line-height: 1.5; }
   </style>
@@ -139,9 +149,31 @@
     </div>
   </div>
 
+  <div id="view-profile" style="display: none;">
+    <div class="sx-card">
+      <div class="sx-title"><h2>Right now for you</h2><span class="sx-muted" style="font-size:0.84rem;" id="px-sub"></span></div>
+      <div class="sx-grid2" id="px-sugg"><div class="sx-empty">Loading...</div></div>
+    </div>
+    <div class="sx-card">
+      <div class="sx-title"><h2>Your character</h2><span class="sx-muted" style="font-size:0.84rem;">Albion has no API for your Destiny Board, so enter the highest tier you have unlocked once. 0 = not started.</span></div>
+      <div class="sx-form sx-form-island">
+        <div><label for="px-name">Name</label><input id="px-name" class="sx-input" maxlength="30" placeholder="optional"></div>
+        <div><label for="px-home">Home city</label><select id="px-home" class="sx-select"></select></div>
+        <div><label for="px-premium">Premium</label><select id="px-premium" class="sx-select"><option value="1">Yes</option><option value="0">No</option></select></div>
+        <div><label for="px-safe" title="Caerleon and the Black Market can only be reached through red zones">Zones</label><select id="px-safe" class="sx-select"><option value="1">Blue and yellow only</option><option value="0">Red zones are fine</option></select></div>
+        <div><label for="px-focus">Focus per day</label><input id="px-focus" class="sx-input" type="number" min="0" max="100000" step="500"></div>
+        <div><label for="px-farms" title="Farm plots for crops, 9 seeds each">Farms</label><input id="px-farms" class="sx-input" type="number" min="0" max="30"></div>
+        <div><label for="px-herbs" title="Herb gardens, 9 seeds each">Herb gardens</label><input id="px-herbs" class="sx-input" type="number" min="0" max="30"></div>
+        <div><label for="px-pastures" title="Pastures, 9 animals each">Pastures</label><input id="px-pastures" class="sx-input" type="number" min="0" max="30"></div>
+      </div>
+      <div class="sx-tiers" id="px-tiers"></div>
+      <div class="sx-row" style="margin-top:12px;"><button class="btn" id="px-save">Save profile</button><span class="sx-note" id="px-hint" style="margin:0;"></span></div>
+    </div>
+  </div>
+
   <div id="view-island" style="display: none;">
     <div class="sx-card">
-      <div class="sx-title"><h2>Your island</h2><span class="sx-muted" style="font-size:0.84rem;">Settings stay in this browser. Prices: the server's current market data, checked for bait and spikes.</span></div>
+      <div class="sx-title"><h2>Your island</h2><span class="sx-muted" style="font-size:0.84rem;" id="ix-source"></span></div>
       <div class="sx-form sx-form-island">
         <div><label for="ix-home">Home city</label><select id="ix-home" class="sx-select"></select></div>
         <div><label for="ix-mode">Sell with</label><select id="ix-mode" class="sx-select"><option value="instant">Instant sale</option><option value="order">Sell order</option></select></div>
@@ -162,6 +194,7 @@
           <button data-p="crops" class="on">Crops &amp; herbs</button><button data-p="animals">Animals</button><button data-p="gathering">Gathering &amp; fishing</button>
         </div>
         <span class="sx-muted" style="font-size:0.84rem;" id="ix-sub"></span>
+        <label id="ix-only-wrap" class="sx-muted" style="font-size:0.84rem;margin-left:auto;cursor:pointer;"><input type="checkbox" id="ix-only"> Only what I have unlocked</label>
       </div>
       <div style="overflow-x:auto;" id="ix-main"><div class="sx-empty">Loading...</div></div>
       <div class="sx-note" id="ix-note"></div>

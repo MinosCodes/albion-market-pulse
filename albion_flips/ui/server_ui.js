@@ -21,7 +21,7 @@
   };
 
   // ------------------------------------------------------------ tabs
-  const MINE = ['history', 'orders', 'island', 'alerts'];
+  const MINE = ['profile', 'history', 'orders', 'island', 'alerts'];
   const original = window.switchTab;
   window.switchTab = function (tab) {
     const mine = MINE.includes(tab);
@@ -41,6 +41,7 @@
     if (tab === 'alerts') { loadAlerts(); markSeen(); }
     if (tab === 'orders') loadOrders();
     if (tab === 'island') loadIsland();
+    if (tab === 'profile') loadProfile();
     if (tab === 'history' && !hx.item) setTimeout(() => $('hx-search').focus(), 0);
     store.set('tab', mine ? tab : null);
   };
@@ -516,16 +517,26 @@
   // ------------------------------------------------------------ island and gathering
   const IX_DEFAULTS = { home: 'Thetford', mode: 'instant', seeds: 18, yield: 9, water: '0', animals: 9, afocus: '0',
     rates: [600, 450, 300, 180, 100, 60, 40], fish_rate: 90 };
-  const ix = { s: Object.assign({}, IX_DEFAULTS, { rates: IX_DEFAULTS.rates.slice() }, store.get('island', {})), part: store.get('islandPart', 'crops'), data: null, seq: 0 };
+  // own settings only after the user changed something here; until then the server fills in the profile
+  const ownIsland = store.get('island', null);
+  const ix = { own: !!ownIsland, s: Object.assign({}, IX_DEFAULTS, { rates: IX_DEFAULTS.rates.slice() }, ownIsland || {}), part: store.get('islandPart', 'crops'), data: null, seq: 0, onlyMine: store.get('islandOnlyMine', false) };
   const TYPE_NAME = { WOOD: 'Wood', ROCK: 'Stone', ORE: 'Ore', FIBER: 'Fiber', HIDE: 'Hide', FISH: 'Fish' };
   const pct = (x) => x == null ? '–' : Math.round(x * 100) + ' %';
   const histLink = (id, label) => `<a href="#" data-hist="${esc(id)}" data-q="1" style="color:var(--text);text-decoration:none;">${esc(label)}</a>`;
 
   function islandQuery() {
     const s = ix.s;
+    if (!ix.own) return '/api/island';
     const p = new URLSearchParams({ home: s.home, mode: s.mode, seeds: s.seeds, yield: s.yield, water: s.water,
       animals: s.animals, afocus: s.afocus, rates: s.rates.join(','), fish_rate: s.fish_rate });
     return '/api/island?' + p.toString();
+  }
+
+  function settingsFromServer(st) {
+    // the server's answer becomes the form's values while the user has no own settings
+    Object.assign(ix.s, { home: st.home, mode: st.sell_mode, seeds: st.seeds, yield: st.crops_per_seed,
+      water: st.water ? '1' : '0', animals: st.animals, afocus: st.animal_focus ? '1' : '0',
+      rates: [2, 3, 4, 5, 6, 7, 8].map((t) => st.rates[t]), fish_rate: st.fish_rate });
   }
 
   async function loadIsland() {
@@ -536,8 +547,13 @@
       ix.data = await r.json();
       if (!$('ix-home').options.length) {
         $('ix-home').innerHTML = ix.data.settings.markets.map((c) => `<option>${esc(c)}</option>`).join('');
-        $('ix-home').value = ix.data.settings.home;
       }
+      if (!ix.own) { settingsFromServer(ix.data.settings); fillIslandForm(); }
+      $('ix-home').value = ix.data.settings.home;
+      $('ix-source').innerHTML = ix.own
+        ? 'Your own settings for this tab. <a href="#" id="ix-reset" style="color:var(--blue);">Use the profile values</a>'
+        : (ix.data.profile_saved ? 'Values from your <a href="#" data-goto="profile" style="color:var(--blue);">profile</a>. Change them here to try other numbers.'
+          : 'Default values. Fill in your <a href="#" data-goto="profile" style="color:var(--blue);">profile</a> to use your island and tiers.');
       renderIsland();
     } catch (e) { $('ix-main').innerHTML = '<div class="sx-empty">Could not load the island data.</div>'; }
   }
@@ -558,11 +574,13 @@
     s.water = $('ix-water').value; s.animals = n('ix-animals', IX_DEFAULTS.animals); s.afocus = $('ix-afocus').value;
     document.querySelectorAll('#ix-rates [data-rate]').forEach((el) => { const v = parseFloat(el.value); if (isFinite(v) && v >= 0) s.rates[+el.dataset.rate] = v; });
     s.fish_rate = n('ix-fish', IX_DEFAULTS.fish_rate);
+    ix.own = true;
     store.set('island', s);
   }
 
   function warnPills(r) {
     let h = '';
+    if (r.locked) h += ` <span class="sx-pill outbid" title="Your profile has not unlocked tier ${r.locked} for this yet">needs T${r.locked}</span>`;
     if (r.no_history) h += ' <span class="sx-pill nodata" title="No trades in the last 7 days: the price may not hold">no history</span>';
     if (r.market_small) h += ' <span class="sx-pill warn" title="You would make more than a quarter of what this market trades per day">small market</span>';
     if (r.feed_unknown) h += ' <span class="sx-pill nodata" title="Eats meat: food cost not included">meat food</span>';
@@ -579,11 +597,17 @@
     ['crops', 'animals', 'gathering'].forEach((p) => {
       const b = document.querySelector(`#ix-part [data-p="${p}"]`); if (b) b.className = p === ix.part ? 'on' : '';
     });
-    const crops = d.crops.filter((r) => !r.missing).sort((a, b) => b.profit_day - a.profit_day);
-    const animals = d.animals.filter((r) => !r.missing).sort((a, b) => b.profit_day_per_spot - a.profit_day_per_spot);
-    const gath = d.gathering.slice().sort((a, b) => (b.per_hour_home || 0) - (a.per_hour_home || 0) || b.per_hour_best - a.per_hour_best);
-    const bestCrop = crops[0], bestAnimal = animals.find((a) => !a.feed_unknown) || animals[0];
-    const bestGather = gath.find((g) => g.per_hour_home) || gath[0];
+    const mine = (r) => !ix.onlyMine || !r.locked;
+    const crops = d.crops.filter((r) => !r.missing && mine(r)).sort((a, b) => b.profit_day - a.profit_day);
+    const animals = d.animals.filter((r) => !r.missing && mine(r)).sort((a, b) => b.profit_day_per_spot - a.profit_day_per_spot);
+    const gath = d.gathering.filter(mine).sort((a, b) => (b.per_hour_home || 0) - (a.per_hour_home || 0) || b.per_hour_best - a.per_hour_best);
+    // the cards show what you can do now; locked rows only when nothing else is there
+    const pick = (rows, ok) => rows.find((r) => !r.locked && ok(r)) || rows.find(ok);
+    const bestCrop = pick(crops, () => true), bestAnimal = pick(animals, (a) => !a.feed_unknown) || animals[0];
+    const bestGather = pick(gath, (g) => g.per_hour_home) || gath[0];
+    $('ix-only').checked = ix.onlyMine;
+    const locked = d.crops.concat(d.animals, d.gathering).filter((r) => r.locked && !r.missing).length;
+    $('ix-only-wrap').title = locked + ' rows need a tier you have not unlocked';
     $('ix-kpis').innerHTML = [
       ['Best crop', bestCrop ? silver(bestCrop.profit_day) : '–', bestCrop ? `${bestCrop.name}, ${s.seeds} seeds a day` : 'no prices yet', bestCrop ? tone(bestCrop.profit_day) : ''],
       ['Best animal', bestAnimal ? silver(bestAnimal.profit_day) : '–', bestAnimal ? `${bestAnimal.grown_name}, ${s.animals} spots, per day` : 'no prices yet', bestAnimal ? tone(bestAnimal.profit_day) : ''],
@@ -633,7 +657,7 @@
     } else {
       sub = `units per hour from your settings, sold in ${home} or the best city`;
       h = `<table class="sx-table"><thead><tr><th>Resource</th><th class="num">Units / h</th><th class="num">After tax in ${esc(home)}</th><th class="num">Best city</th><th class="num">Silver / h here</th><th class="num">Silver / h best</th><th class="num">Traded / day</th><th>Where near ${esc(home)}</th></tr></thead><tbody>`
-        + (gath.map((r) => `<tr><td>${histLink(r.id, r.name)} <span class="sx-muted">T${r.tier} ${TYPE_NAME[r.type] || ''}</span>${r.no_history ? ' <span class="sx-pill nodata">no history</span>' : ''}</td>`
+        + (gath.map((r) => `<tr><td>${histLink(r.id, r.name)} <span class="sx-muted">T${r.tier} ${TYPE_NAME[r.type] || ''}</span>${warnPills(r)}</td>`
           + `<td class="num">${silver(r.rate)}</td><td class="num">${silver(r.home_net)}</td>`
           + `<td class="num">${silver(r.best_net)} <span class="sx-muted">${esc(r.best_city)}</span></td>`
           + `<td class="num"><b>${silver(r.per_hour_home)}</b></td><td class="num">${silver(r.per_hour_best)}</td>`
@@ -650,18 +674,105 @@
     $('ix-sub').textContent = sub;
   }
 
+  // ------------------------------------------------------------ profile
+  const PX_GROUPS = [
+    ['gather', 'Gathering', [['ORE', 'Ore'], ['FIBER', 'Fiber'], ['WOOD', 'Wood'], ['ROCK', 'Stone'], ['HIDE', 'Hide'], ['FISH', 'Fishing']]],
+    ['refine', 'Refining', [['METALBAR', 'Metal bars'], ['CLOTH', 'Cloth'], ['PLANKS', 'Planks'], ['STONEBLOCK', 'Stone blocks'], ['LEATHER', 'Leather']]],
+    ['craft', 'Crafting', [['gear', 'Weapons and armor'], ['saddler', 'Mounts (saddler)'], ['cook', 'Food (cook)'], ['alchemist', 'Potions (alchemist)']]],
+    ['farming', 'Island', [['crops', 'Crops (farmer)'], ['herbs', 'Herbs (herbalist)'], ['animals', 'Animals (breeder)']]],
+  ];
+  const px = { data: null, dirty: false };
+
+  async function loadProfile() {
+    try {
+      const r = await fetch('/api/profile', { credentials: 'same-origin' });
+      if (!r.ok) return;
+      px.data = await r.json();
+      if (!px.dirty) fillProfileForm();
+      renderSuggestions();
+    } catch (e) { $('px-sugg').innerHTML = '<div class="sx-empty">Could not load the profile.</div>'; }
+  }
+
+  function fillProfileForm() {
+    const d = px.data, p = d.profile;
+    $('px-home').innerHTML = d.cities.map((c) => `<option>${esc(c)}</option>`).join('');
+    $('px-name').value = p.name; $('px-home').value = p.home;
+    $('px-premium').value = p.premium ? '1' : '0'; $('px-safe').value = p.safe_only ? '1' : '0';
+    $('px-focus').value = p.focus_per_day;
+    $('px-farms').value = p.island.farms; $('px-herbs').value = p.island.herb_gardens; $('px-pastures').value = p.island.pastures;
+    $('px-tiers').innerHTML = PX_GROUPS.map(([g, title, keys]) => `<fieldset><legend>${title}</legend>`
+      + keys.map(([k, label]) => `<label>${label} <span>T <input class="sx-num-in" type="number" min="0" max="8" data-g="${g}" data-k="${k}" value="${p[g][k]}"></span></label>`).join('')
+      + '</fieldset>').join('');
+    const edit = d.can_edit;
+    document.querySelectorAll('#view-profile input, #view-profile select').forEach((el) => { el.disabled = !edit; });
+    $('px-save').disabled = !edit;
+    $('px-hint').textContent = !edit ? 'Read-only view: open your login link to change the profile.'
+      : d.saved ? 'Saved ' + ago(d.updated) + '.' : 'Not saved yet: these are default values.';
+  }
+
+  function readProfileForm() {
+    const n = (id) => +$(id).value;
+    const body = { name: $('px-name').value.trim(), home: $('px-home').value, premium: $('px-premium').value === '1',
+      safe_only: $('px-safe').value === '1', focus_per_day: n('px-focus'),
+      island: { farms: n('px-farms'), herb_gardens: n('px-herbs'), pastures: n('px-pastures') } };
+    document.querySelectorAll('#px-tiers [data-g]').forEach((el) => { (body[el.dataset.g] = body[el.dataset.g] || {})[el.dataset.k] = +el.value; });
+    return body;
+  }
+
+  async function saveProfile() {
+    try {
+      await api('/api/profile', readProfileForm());
+      px.dirty = false;
+      ix.data = null; // the island tab follows the new profile
+      await loadProfile();
+      $('px-hint').textContent = 'Saved.';
+    } catch (e) { $('px-hint').textContent = e.message; }
+  }
+
+  function renderSuggestions() {
+    const d = px.data; if (!d) return;
+    const s = d.suggestions, p = d.profile;
+    $('px-sub').textContent = `Fits your tiers${p.safe_only ? ', blue and yellow zones only' : ''}, from the current market data.`;
+    const where = (a, b) => a && b && a !== b ? `${esc(a)} → ${esc(b)}` : esc(a || b || '');
+    const tierTxt = (t, e) => t ? ` <span class="sx-muted">T${t}${e ? '.' + e : ''}</span>` : '';
+    const box = (title, rows, line, empty) => `<div class="sx-box"><h3>${title}</h3>${rows.length
+      ? '<ol>' + rows.map((r) => '<li>' + line(r) + '</li>').join('') + '</ol>'
+      : `<div class="sx-muted" style="font-size:0.84rem;">${empty}</div>`}</div>`;
+    const made = (r) => `${histLink(r.item_id, r.name)}${tierTxt(r.tier, r.enchant)}${r.focus ? ' <span class="sx-pill buy">focus</span>' : ''}: <b class="sx-good">+${silver(r.profit)}</b> each <span class="sx-muted">${where(r.city, r.sell_city)}</span>`;
+    $('px-sugg').innerHTML = [
+      box('Refining', s.refine, made, 'Nothing profitable within your refining tiers right now.'),
+      box('Crafting', s.craft, made, 'Nothing profitable within your crafting tiers in the current list.'),
+      box('Transport', s.transport, (r) => `${histLink(r.item_id, r.name)}${tierTxt(r.tier, r.enchant)}: <b class="sx-good">+${silver(r.per_day)}</b>/day <span class="sx-muted">${where(r.buy_city, r.sell_city)}, +${silver(r.profit)} each</span>`, 'No checked flip on safe routes right now.'),
+      box('Crops and herbs', s.crops, (r) => `${histLink(r.crop, r.name)}${tierTxt(r.tier)}: <b class="sx-good">+${silver(r.profit_day)}</b>/day <span class="sx-muted">${r.made_day} pieces, sell in ${esc(r.sell_city)}</span>`, 'Nothing profitable you can plant yet.'),
+      box('Animals', s.animals, (r) => `${histLink(r.grown, r.grown_name)}${tierTxt(r.tier)}: <b class="sx-good">+${silver(r.profit_day)}</b>/day <span class="sx-muted">baby in ${esc(r.baby_city)}</span>`, 'No priced animal you can raise yet.'),
+      box('Gathering', s.gathering, (r) => `${histLink(r.id, r.name)}${tierTxt(r.tier)}: <b>${silver(r.per_hour_home)}</b>/h <span class="sx-muted">${r.type === 'FISH' ? 'fishing' : esc((r.zones[0] || {}).name || '')}</span>`, 'Nothing in your home region within your gathering tiers.'),
+    ].join('');
+  }
+
   // ------------------------------------------------------------ wiring
   function init() {
+    $('px-save').addEventListener('click', saveProfile);
+    $('view-profile').addEventListener('input', (e) => { if (e.target.closest('.sx-card') && e.target.id !== 'px-save') px.dirty = true; });
+    $('view-profile').addEventListener('click', (e) => {
+      const h = e.target.closest('a[data-hist]');
+      if (h) { e.preventDefault(); window.openPriceHistory(h.dataset.hist, 1); }
+    });
     fillIslandForm();
     segment('ix-part', 'p', (v) => { ix.part = v; store.set('islandPart', v); renderIsland(); });
     let it = null;
     $('view-island').addEventListener('change', (e) => {
+      if (e.target.id === 'ix-only') { ix.onlyMine = e.target.checked; store.set('islandOnlyMine', ix.onlyMine); renderIsland(); return; }
       if (!e.target.closest('.sx-card')) return;
       readIslandForm(); clearTimeout(it); it = setTimeout(loadIsland, 150);
     });
     $('view-island').addEventListener('click', (e) => {
       const h = e.target.closest('a[data-hist]');
-      if (h) { e.preventDefault(); window.openPriceHistory(h.dataset.hist, 1); }
+      if (h) { e.preventDefault(); window.openPriceHistory(h.dataset.hist, 1); return; }
+      const g = e.target.closest('a[data-goto]');
+      if (g) { e.preventDefault(); window.switchTab(g.dataset.goto); return; }
+      if (e.target.id === 'ix-reset') {
+        e.preventDefault(); ix.own = false; store.set('island', null); loadIsland();
+      }
     });
     searchBox('hx-search', 'hx-results', (it) => { hx.item = it; hx.data = null; loadHistory(); });
     searchBox('ax-search', 'ax-results', (it) => { ax.item = it; $('ax-hint').textContent = ''; $('ax-price').focus(); });

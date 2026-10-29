@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 from urllib.parse import parse_qs, urlsplit
 
-from albion_flips import island
+from albion_flips import island, player
 from albion_flips.analyzer import analyze_flips, parse_aodp_datetime
 from albion_flips.api import AodpClient
 from albion_flips.config import AppConfig, ConfigError, load_config, load_items
@@ -307,6 +307,11 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
             if path == "/api/island":
                 self._json(200, insights.island_view(q))
                 return True
+            if path == "/api/profile":
+                view = insights.profile_view()
+                view["can_edit"] = auth.session_ok(self.headers.get("Cookie"))
+                self._json(200, view)
+                return True
             if path == "/api/orders":
                 view = insights.orders_view()
                 view["cities"] = list(insights.cities)
@@ -316,7 +321,8 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
             return False
 
         def _insights_post(self, path: str) -> bool:
-            routes = ("/api/alerts", "/api/alerts/delete", "/api/orders", "/api/orders/update", "/api/orders/delete")
+            routes = ("/api/alerts", "/api/alerts/delete", "/api/orders", "/api/orders/update", "/api/orders/delete",
+                      "/api/profile")
             if insights is None or path not in routes:
                 return False
             if self._need_session():
@@ -333,6 +339,8 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
                     order = insights.orders.add(OrderBook.validate(body, insights.cities))
                     insights.check_now({(order["item_id"], order["quality"])})
                     self._json(200, {"ok": True, "order": order})
+                elif path == "/api/profile":
+                    self._json(200, {"ok": True, "profile": insights.profile.set(player.validate(body, insights.cities))})
                 elif path == "/api/orders/update":
                     order = insights.orders.update(str(body.get("id", "")), body)
                     insights.check_now({(order["item_id"], order["quality"])})
@@ -544,9 +552,10 @@ class Insights:
 
     def __init__(self, market: MarketStore, store: FlipDataStore, alerts: AlertBook,
                  cities: Sequence[str], item_ids: Sequence[str] = (), hub: OverlayHub | None = None,
-                 orders: OrderBook | None = None) -> None:
+                 orders: OrderBook | None = None, profile: player.ProfileStore | None = None) -> None:
         self.market, self.store, self.alerts, self.hub = market, store, alerts, hub
         self.orders = orders if orders is not None else OrderBook()
+        self.profile = profile if profile is not None else player.ProfileStore()
         self.cities = list(dict.fromkeys(list(cities) + ["Black Market"]))
         self.item_ids = list(item_ids)
         self._index: list[str] = []
@@ -582,10 +591,24 @@ class Insights:
         setup = cfg.setup_fee_rate if cfg else 0.025
         return self.orders.view(store_quotes(self.store), tax, setup)
 
-    def island_view(self, query: dict[str, list[str]]) -> dict[str, Any]:
-        cfg = self.store.last_config
-        settings = island.parse_settings(query, self.cities, cfg.premium if cfg else True)
-        return island.island_payload(self.store, store_quotes(self.store), settings)
+    def island_view(self, query: dict[str, list[str]], quotes: list | None = None) -> dict[str, Any]:
+        """Island tab; settings missing from the query come from the saved profile."""
+        prof = self.profile.get()
+        query = dict(player.island_query(prof), **query)
+        settings = island.parse_settings(query, self.cities, prof["premium"])
+        payload = island.island_payload(self.store, store_quotes(self.store) if quotes is None else quotes, settings)
+        player.island_locks(prof, payload)
+        payload["profile_saved"] = self.profile.saved
+        return payload
+
+    def profile_view(self) -> dict[str, Any]:
+        prof = self.profile.get()
+        isl = self.island_view({}, store_quotes(self.store))
+        with self.store._lock:
+            crafting, focus, flips = list(self.store.crafting), list(self.store.focus_crafting), list(self.store.flips)
+        return {"profile": prof, "saved": self.profile.saved, "updated": self.profile.updated,
+                "cities": [c for c in self.cities if c != "Black Market"],
+                "suggestions": player.suggestions(prof, crafting, focus, flips, isl)}
 
 
 def attach_overlay(store: FlipDataStore, poller: "Poller | None" = None, insights: Insights | None = None) -> OverlayHub:
@@ -724,7 +747,7 @@ def main(argv: list[str] | None = None) -> int:
     auth = Auth(svc.access_key, svc.ingest_key, svc.public_read, svc.allow_local_ingest)
     store.set_refresh_callback(poller.request_sweep)
     insights = Insights(market, store, AlertBook(data_dir / "alerts.json"), config.cities, item_ids,
-                        orders=OrderBook(data_dir / "orders.json"))
+                        orders=OrderBook(data_dir / "orders.json"), profile=player.ProfileStore(data_dir / "profile.json"))
     hub = attach_overlay(store, poller, insights)
     httpd = start_web_server(store, port=config.web_port, host=config.web_host,
                              handler_cls=make_handler(auth, poller.status, hub, store, insights))

@@ -225,7 +225,7 @@ the best instant sale and the best sell order after tax and setup fee (sell orde
 the 7-day average), and matching flips. Enable it in the client ("Show the in-game overlay") or start
 `AlbionMarketPulseClient.exe --overlay`.
 
-### Price history, alerts, orders and island (server only)
+### Price history, alerts, orders, island and profile (server only)
 
 The server adds two dashboard tabs that need its SQLite history (`albion_flips/insights.py`, pages in
 `albion_flips/ui/`, injected into the desktop page by `inject_server_ui`, so desktop mode is unchanged):
@@ -269,8 +269,23 @@ The server adds two dashboard tabs that need its SQLite history (`albion_flips/i
   * `data/island.json` was extracted from the official game files (ao-bin-dumps). Not yet included:
     mounts built from grown animals, animal products, enchanted resources.
 
+* **My Profile** (`albion_flips/player.py`): Albion has no API for a character's Destiny Board, so the
+  player enters the highest unlocked tier per skill once (gathering per resource and fishing,
+  refining per material, crafting gear/mounts/food/potions, island crops/herbs/animals), plus home
+  city, premium, focus per day, island size (farms, herb gardens, pastures) and whether red zones are
+  acceptable. Stored on the server in `<data_dir>/profile.json` so every device shows the same; only
+  a logged-in visitor can change it.
+  * *Right now for you*: the best refining and crafting results (focus or not), checked transport
+    flips, crops, animals and gathering that fit those tiers. With "blue and yellow only", anything
+    that buys or sells in Caerleon or at the Black Market is left out.
+  * The island tab starts from the profile (seeds = 9 per farm and herb garden, animals = 9 per
+    pasture, crops per seed from premium) until the player changes a value there, marks rows that
+    need a higher tier and can hide them.
+
 | Route | Access |
 | --- | --- |
+| `GET /api/profile` | read access (`can_edit` tells the page whether this visitor may change it) |
+| `POST /api/profile` | login cookie |
 | `GET /api/island?home=&mode=instant\|order&seeds=&yield=&water=0\|1&animals=&afocus=0\|1&rates=&fish_rate=` | read access |
 | `GET /api/orders` | read access |
 | `POST /api/orders`, `/api/orders/update`, `/api/orders/delete` | login cookie |
@@ -297,9 +312,10 @@ artifact. The .exe is not code-signed, so Windows SmartScreen shows a warning on
   login/public read/write protection/ingest key over real HTTP, proxy handling, one full sweep.
 * `tests/test_liveclient.py`: URL/key/pairing-link validation, settings and defaults, connection
   check against a real running server, release checksum rules, refusing a tampered download.
-* `tests/test_insights.py`, `tests/test_orders.py`, `tests/test_island.py`: price history, alerts,
-  order tracker and the island calculator (seed return with and without watering, bait seed prices,
-  favourite food, offspring, gathering zones, the routes over real HTTP).
+* `tests/test_insights.py`, `tests/test_orders.py`, `tests/test_island.py`, `tests/test_player.py`:
+  price history, alerts, order tracker, the island calculator (seed return with and without
+  watering, bait seed prices, favourite food, offspring, gathering zones) and the profile (validation,
+  storage, tier locks, safe-zone filter, island defaults), with the routes over real HTTP.
 
 Verified on 2026-10-29: 91 tests on Windows (Python 3.12) and Linux (Debian 13, Python 3.13);
 `install.sh` on Debian 13 (systemd exposure score 3.0 "OK"); a full sweep against live AODP

@@ -50,6 +50,8 @@ dashboard is then up to date even while nobody is playing.
 - **Island and gathering**: profit per day for every crop, herb and farm animal (seed return,
   watering focus, offspring, cheapest food) and silver per hour for gathering and fishing, with the
   zones near your home city (server mode).
+- **Your profile**: enter the tiers your character has unlocked and see what pays off for you right
+  now, from refining to farming, on safe routes only if you like (server mode).
 - **One-click copy** of the in-game search name, plus a personal watchlist.
 
 ### Trust the numbers
