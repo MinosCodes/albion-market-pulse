@@ -14,31 +14,27 @@ Windows only. Requirements and behaviour:
   including the copy it starts when it updates itself.
 - The client opens its own status window at launch; with hide_window it is hidden
   (the client's tray icon stays, so the window can still be opened from there).
+- The download is only installed when its SHA-256 matches the digest GitHub
+  publishes for the release asset (see liveclient.install_data_client).
 """
 from __future__ import annotations
 
-import gzip
-import json
 import logging
 import os
 import re
-import shutil
 import subprocess
 import sys
 import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any
-from urllib.request import Request, urlopen
+from typing import Any, Callable
 
 from albion_flips.paths import USER_DIR
 
 logger = logging.getLogger(__name__)
 
 IS_WINDOWS = sys.platform == "win32"
-RELEASES_API = "https://api.github.com/repos/ao-data/albiondata-client/releases/latest"
-WINDOWS_ASSET = "update-windows-amd64.exe.gz"
 AODP_UPLOAD = "https+pow://albion-online-data.com"
 NPCAP_URL = "https://npcap.com/#download"
 CLIENT_WINDOW_TITLE = "Albion Data Client"
@@ -303,7 +299,11 @@ class SnifferManager:
         auto_download: bool = True,
         hide_window: bool = True,
         share_with_aodp: bool = True,
+        http_fn: Callable[..., Any] | None = None,
+        download_fn: Callable[[str, Path], None] | None = None,
     ) -> None:
+        self._http_fn = http_fn          # tests only: GitHub API call
+        self._download_fn = download_fn  # tests only: file download
         self.port = port
         self.install_dir = install_dir or USER_DIR / "albiondata-client"
         self.exe_path = self.install_dir / "albiondata-client.exe"
@@ -480,27 +480,22 @@ class SnifferManager:
         logger.info("Sniffer: %s - %s", state, message)
 
     def _download_client(self) -> None:
-        self._set("downloading", "Downloading the Albion Data Client from GitHub (ao-data/albiondata-client)...")
-        req = Request(RELEASES_API, headers={"User-Agent": "albion-market-pulse", "Accept": "application/vnd.github+json"})
-        with urlopen(req, timeout=30) as resp:
-            release = json.loads(resp.read().decode("utf-8"))
-        asset = next((a for a in release.get("assets", []) if a.get("name") == WINDOWS_ASSET), None)
-        if asset is None:
-            raise RuntimeError(f"release {release.get('tag_name')} has no {WINDOWS_ASSET}")
+        """Same checked install as the Windows live client: the gzip file must match the SHA-256
+        GitHub publishes for the release asset, otherwise nothing is unpacked or started."""
+        from albion_flips import liveclient  # local import: keeps sniffer importable on its own
 
-        self.install_dir.mkdir(parents=True, exist_ok=True)
-        tmp = self.exe_path.with_suffix(".download")
-        req = Request(asset["browser_download_url"], headers={"User-Agent": "albion-market-pulse"})
-        with urlopen(req, timeout=300) as resp, gzip.GzipFile(fileobj=resp) as gz, open(tmp, "wb") as out:
-            shutil.copyfileobj(gz, out)
-        with open(tmp, "rb") as f:
+        self._set("downloading", "Downloading the Albion Data Client from GitHub (ao-data/albiondata-client)...")
+        asset = liveclient.fetch_release(http_fn=self._http_fn)
+        installed = liveclient.install_data_client(self.install_dir, asset, self._download_fn)
+        with open(installed, "rb") as f:
             if f.read(2) != b"MZ":
-                tmp.unlink(missing_ok=True)
+                installed.unlink(missing_ok=True)
                 raise RuntimeError("downloaded file is not a Windows executable")
-        os.replace(tmp, self.exe_path)
+        if installed.resolve() != self.exe_path.resolve():
+            os.replace(installed, self.exe_path)
         with self._lock:
-            self._version = release.get("tag_name")
-        logger.info("Downloaded albiondata-client %s to %s", release.get("tag_name"), self.exe_path)
+            self._version = asset.version
+        logger.info("Downloaded albiondata-client %s to %s (SHA-256 %s verified)", asset.version, self.exe_path, asset.sha256)
 
     def _start_hidden(self) -> None:
         log = open(self.log_path, "w", encoding="utf-8", errors="replace", buffering=1)
