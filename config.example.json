@@ -1,6 +1,6 @@
 {
   "server": "europe",
-  "cities": ["Bridgewatch", "Fort Sterling", "Lymhurst", "Martlock", "Thetford", "Caerleon", "Black Market"],
+  "cities": ["Bridgewatch", "Fort Sterling", "Lymhurst", "Martlock", "Thetford", "Caerleon", "Brecilien", "Black Market"],
   "qualities": [1, 2, 3, 4, 5],
   "premium": true,
   "tax_rate_premium": 0.04,
@@ -12,6 +12,7 @@
   "min_daily_volume": 50,
   "volume_days": 3,
   "max_price_age_minutes": 120,
+  "craft_max_price_age_minutes": 360,
   "stack_size": 100,
   "refresh_seconds": 180,
   "top_n": 25,
@@ -28,5 +29,11 @@
   "web": {
     "enabled": false,
     "port": 8765
+  },
+  "sniffer": {
+    "enabled": true,
+    "auto_download": true,
+    "hide_window": true,
+    "share_with_aodp": true
   }
 }

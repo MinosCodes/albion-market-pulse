@@ -21,16 +21,19 @@ A real-time market analysis tool and interactive web dashboard for **Albion Onli
 - 🏴‍☠️ **Black Market Arbitrage**: Find high-demand items to buy in Royal cities and flip directly to Caerleon's Black Market buy orders.
   - **Live Arrival Feed**: Badges items that were recently scanned (`⚡ JUST IN`, `🟢 RECENT SCAN`).
   - **Filter by Freshness**: Quickly isolate fresh market orders (`<15m` old) before other players fill them.
-- ⚒️ **Crafting Profit Calculator**: Real-time margin calculations factoring in local city return rate bonuses (15.2% Royal / 24.8% Caerleon), focus crafting (43.5% / 47.9%), and station fees.
+- ⚒️ **Crafting Profit Calculator**: Every recipe in the game (~8,000, generated from [ao-bin-dumps](https://github.com/ao-data/ao-bin-dumps) by `tools/build_recipes.py`), with the best crafting city per category from the game's own bonus table (15.2% base / 24.8% specialization / 36.7% refining, more with focus), station fees, Normal-quality prices only, and sales volume of the result.
 - 🔮 **Enchanting & Mass Enchanting Arbitrage**:
-  - **Artifact Foundry Recipes**: Calculates exact material counts (192 for 2H Weapons, 144 for 1H Weapons, 96 for Armor & Bags, 48 for Helmets, Boots, Capes & Off-hands) across `.0 ➜ .1`, `.1 ➜ .2`, `.2 ➜ .3`, `.0 ➜ .2`, and `.0 ➜ .3` transitions.
+  - **Artifact Foundry Recipes**: Calculates exact material counts from the game data (384 for 2H Weapons, 288 for 1H Weapons, 192 for Armor & Bags, 96 for Helmets, Boots, Capes & Off-hands, per step) across `.0 ➜ .1`, `.1 ➜ .2`, `.2 ➜ .3`, `.0 ➜ .2`, and `.0 ➜ .3` transitions.
   - **Live Material Ticker**: Live-scanned rune, soul, and relic prices with 1-click manual price overrides and live sniffer detection.
   - **Mass Batch Profit Simulator**: Configurable batch sizing (10x, 25x, 50x, 100x, or custom) calculating total material cost, mass profit, and ROI margin.
   - **Dual Selling Modes**: Supports local city listing (with tax & setup fee) as well as direct Black Market buy order arbitrage.
   - **1-Click Copy**: Dedicated copy buttons for both the gear item and the exact enchanting material.
 - ⚡ **Live Network Sniffer Integration**: Built-in status indicator and guide for pairing with the open-source `albiondata-client` for real-time 0-second market updates.
-- 🌐 **Interactive Web Dashboard**: Fast, responsive dark-mode dashboard running locally at `http://localhost:8765`.
+- 🌐 **Interactive Web Dashboard**: Fast, responsive dark-mode dashboard running locally at `http://127.0.0.1:8765` (bound to this PC only, never the LAN).
 - ⚙️ **Configurable Tax & Fees**: Accurately factors in Premium tax (4%), non-premium tax (8%), and listing setup fees (2.5%).
+- 💎 **Premium Tax Button**: The header button switches every tab between Premium (4%) and normal (8%) market tax; all profits are shown after tax, and crafting/enchanting rows show the tax taken. The choice is remembered (it overrides `"premium"` in config.json).
+- 📡 **Sniffer Scans Only**: Shows only the profitable deals whose prices were captured by your local sniffer in the last hour, best profit first. Sniffer prices also stay in use after an API refresh until the API catches up.
+- 🧪 **Material Icons & Costs**: Crafting rows show each ingredient's icon, quantity and unit price (📡 marks a price captured by the sniffer). Materials are bought in the craft city; artifacts, royal sigils, Avalonian shards, faction hearts and crests are bought in the cheapest city, shown on the row. Every city is tried with its own prices and return rate and the cheapest one is picked. With **Sniffer Scans Only** on, crafting uses only material prices your sniffer captured. The return rate depends on the item category and the craft city; hover the craft city to see the rate in every city.
 
 
 ---
@@ -66,6 +69,34 @@ A real-time market analysis tool and interactive web dashboard for **Albion Onli
 ```
 
 ---
+
+## 🪟 Standalone Windows App (.exe)
+
+No Python needed: double-click **`AlbionMarketPulse.exe`**. It opens a native window (Microsoft Edge WebView2, built into Windows 10/11) and fills in after the first scan (about a minute). On first run it creates `config.json` (edit `server` / `premium` there), a `.cache` folder and `albion-market-pulse.log` next to the exe.
+
+To build it yourself, double-click **`build_exe.bat`**; the result is `dist\AlbionMarketPulse.exe`. After a game patch, run `python tools/build_recipes.py` and rebuild to refresh recipes.
+
+**Live prices are built in.** On start the app also runs the official [Albion Data Client](https://github.com/ao-data/albiondata-client) in the background (downloading it into an `albiondata-client` folder on first run), so every market you open in-game streams straight into the dashboard. You only need [Npcap](https://npcap.com/#download) installed once (leave *"Restrict Npcap driver's access to Administrators only"* unchecked to avoid a UAC prompt each launch). Click the **Sniffer** pill at the top for status, Start / Stop / Restart, the client log, and the client's own window. The client stops when you close the app (even if the app crashes). Turn it off or change it under `"sniffer"` in `config.json`:
+
+```json
+"sniffer": {
+  "enabled": true,          // start the client with the app (Windows)
+  "auto_download": true,    // download it from GitHub if missing
+  "hide_window": true,      // hide the client's own status window (it stays in the tray)
+  "share_with_aodp": true   // also upload to the community database, like the client normally does
+}
+```
+
+---
+
+### Installer (Setup.exe)
+
+`build_installer.bat` runs the tests, builds the app and packages it into **`dist\AlbionAnalyser-Setup-<version>.exe`** with [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install --id JRSoftware.InnoSetup -e`). The version comes from `albion_flips/__init__.py`; the script is `installer/AlbionAnalyser.iss`.
+
+- Installs for the current user without an admin prompt (or for all users from the dialog), with a Start menu entry, an optional desktop icon and an uninstaller.
+- Running a newer Setup updates the existing install (keep the `AppId` in the script unchanged).
+- At the end it offers the Npcap download page when Npcap is missing, and the WebView2 page when the runtime is missing. Npcap cannot be bundled: its free license does not allow redistribution.
+- The installer and the app are not code-signed, so Windows SmartScreen shows "Windows protected your PC" (More info -> Run anyway) until you sign them with a code-signing certificate.
 
 ## 🚀 Quickstart: How to Host Locally
 
@@ -109,7 +140,7 @@ cp config.example.json config.json
 ```
 
 Open `config.json` and adjust:
-- `"server"`: Set to `"europe"` (Albion Europe), `"west"` (Albion Americas), or `"east"` (Albion Asia).
+- `"server"`: Set to `"europe"` (Albion Europe), `"americas"` (or `"west"`), or `"asia"` (or `"east"`).
 - `"premium"`: Set to `true` if your character has active Premium (reduces tax to 4%).
 
 ### 3. Run the Analyzer & Desktop Companion App
@@ -171,6 +202,8 @@ The Data Client requires the **Npcap** packet capture driver:
    - **`[X] Install Npcap in WinPcap API-compatible Mode`**
 4. Complete the installation.
 
+> Using the `.exe` or `Start-Albion-Pulse.bat`? The app downloads and starts the Data Client itself; you only need Npcap from step 1.
+
 ### 2. Auto-Install Albion Market Pulse
 In the project folder on Windows, simply double-click:
 👉 **`Setup-Windows.bat`**
@@ -184,7 +217,7 @@ This automated script will:
 1. Double-click the **`Albion Market Pulse`** shortcut on your Desktop (or run `Start-Albion-Pulse.bat`).
 2. A Windows UAC prompt may appear asking to allow `albiondata-client.exe` — click **Yes** (Admin rights are required by Npcap to capture network adapter packets).
 3. The launcher automatically starts:
-   - **Albion Data Client** configured with dual-upload (`-i "https+pow://...,http://127.0.0.1:8765/api/ingest"`), feeding both the community and your local dashboard in `<2ms`.
+   - **Albion Data Client** configured with dual-upload (`-i "https+pow://albion-online-data.com,http://127.0.0.1:8765/api/ingest"`), feeding both the community and your local dashboard in `<2ms`.
    - **Albion Market Pulse** web engine with 0-second live calculation.
    - Pops open **`http://localhost:8765`** in your browser.
 4. Launch **Albion Online** and walk up to any Marketplace or the Caerleon Black Market.
@@ -241,7 +274,8 @@ This automated script will:
   "max_margin_pct": 300,                // Filters out erroneous or manipulated outlier prices
   "min_daily_volume": 50,               // Minimum average volume to consider liquid
   "volume_days": 3,                     // Historical days to average volume
-  "max_price_age_minutes": 120,         // Discard price quotes older than X minutes
+  "max_price_age_minutes": 120,         // Discard price quotes older than X minutes (flips)
+  "craft_max_price_age_minutes": 360,   // Same, for crafting & enchanting
   "stack_size": 100,                    // Multiplier for calculating total batch profit
   "refresh_seconds": 180,               // Auto-refresh interval (default 3m; daemon supports down to 20s)
   "top_n": 25,                          // Number of items to display in CLI

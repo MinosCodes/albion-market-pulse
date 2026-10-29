@@ -52,6 +52,20 @@ def parse_enchant(item_id: str) -> int:
 
 
 def get_item_weight(item_id: str) -> float:
+    """Weight of an Albion item in kilograms.
+
+    Uses the exact weight from the game data (data/recipes.json) when the item is
+    known, otherwise falls back to estimate_item_weight().
+    """
+    from albion_flips.recipes import load_recipe_book
+
+    weight = load_recipe_book().weights.get(item_id.split("@")[0])
+    if weight:
+        return weight
+    return estimate_item_weight(item_id)
+
+
+def estimate_item_weight(item_id: str) -> float:
     """Estimates the weight of an Albion item in kilograms.
     
     Weights are realistic approximations based on item category and tier:

@@ -7,34 +7,14 @@ echo    ⚔️ Albion Market Pulse - Starting Up...
 echo ======================================================
 echo.
 
-:: 1. Check for Albion Data Client (packet sniffer for ingesting live prices)
-set CLIENT_EXE=
-if exist "albiondata-client\albiondata-client.exe" (
-    set CLIENT_EXE=albiondata-client\albiondata-client.exe
-) else if exist "albiondata-client.exe" (
-    set CLIENT_EXE=albiondata-client.exe
-)
-
-if not "%CLIENT_EXE%"=="" (
-    tasklist /fi "imagename eq albiondata-client.exe" 2>nul | findstr /i "albiondata-client.exe" >nul 2>&1
-    if %errorlevel% neq 0 (
-        echo [INFO] Starting Albion Data Client for 0-second live price capture (requesting Admin permissions)...
-        powershell -Command "Start-Process '%CLIENT_EXE%' -ArgumentList '-i \"\"https+pow://pow.europe.albion-online-data.com,http://127.0.0.1:8765/api/ingest\"\"' -Verb runAs"
-    ) else (
-        echo [INFO] Albion Data Client is already running.
-    )
-) else (
-    echo [NOTE] Albion Data Client not found in folder.
-    echo If you want your in-game market scans to feed the community database,
-    echo download albiondata-client from: https://github.com/ao-data/albiondata-client/releases
-    echo.
-)
+:: 1. The app itself starts the Albion Data Client in the background (downloading it
+::    on first run). Configure or disable this under "sniffer" in config.json.
 
 :: 2. If server is already running, just open the browser
 netstat -ano 2>nul | findstr /C:":8765" | findstr /C:"LISTENING" >nul 2>&1
 if %errorlevel% equ 0 (
     echo [INFO] Server is already running on port 8765. Opening browser...
-    start "" "http://localhost:8765"
+    start "" "http://127.0.0.1:8765"
     timeout /t 2 /nobreak >nul
     exit /b 0
 )
@@ -90,11 +70,11 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 :: 6. Open browser in background after short delay
-start "" cmd /c "timeout /t 2 /nobreak >nul && start http://localhost:8765"
+start "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:8765"
 
 echo.
 echo ======================================================
-echo  🚀 Service is LIVE at http://localhost:8765
+echo  🚀 Service is LIVE at http://127.0.0.1:8765
 echo  Leave this window open while playing Albion Online!
 echo ======================================================
 echo.

@@ -16,7 +16,9 @@ from albion_flips.api import AodpClient, OfflineClient
 from albion_flips.config import AppConfig, ConfigError, load_config, load_items
 from albion_flips.models import ExitType, FlipOpportunity
 from albion_flips.notify import Notifier
-from albion_flips.web import ITEM_NAMES, FlipDataStore, start_web_server
+from albion_flips.names import load_item_names
+from albion_flips.recipes import load_recipe_book
+from albion_flips.web import FlipDataStore, start_web_server
 
 
 logger = logging.getLogger("albion_flips")
@@ -123,7 +125,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--web", action="store_true", help="Start local web dashboard at http://127.0.0.1:8765.")
     parser.add_argument("--desktop", action="store_true", help="Launch native desktop application window (Albion Analyser style).")
     parser.add_argument("--config", type=str, default=None, help="Path to config.json.")
-    parser.add_argument("--items", type=str, default="data/items.json", help="Path to items.json.")
+    parser.add_argument("--items", type=str, default=None, help="Path to items.json (default: bundled data/items.json).")
     parser.add_argument("--offline", type=str, default=None, help="Directory containing fixture JSON files.")
     parser.add_argument("--top", type=int, default=None, help="Number of top rows to display.")
     parser.add_argument(
@@ -148,7 +150,24 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
 
 
 
+def _dashboard_running(port: int) -> bool:
+    """True when an Albion Market Pulse server already answers on this port."""
+    from urllib.request import urlopen
+
+    try:
+        with urlopen(f"http://127.0.0.1:{port}/api/flips", timeout=3) as resp:
+            return resp.status == 200 and b"last_refresh" in resp.read(4096)
+    except Exception:
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
+    # Windows consoles and redirected output often use cp1252, which cannot encode
+    # the table's emoji; replace them instead of crashing.
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+
     args = parse_args(argv)
 
     # Load configuration
@@ -187,6 +206,14 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             err_console.print(f"[bold red]Error loading items:[/bold red] {e}")
             return 1
+        # Also price every recipe ingredient (T2 resources, artifacts, sigils, hearts,
+        # herbs...) and every craftable item, so the crafting tab can cost all recipes.
+        known = set(item_ids)
+        book = load_recipe_book()
+        wanted = book.ingredient_ids() | book.output_ids()
+        item_ids += sorted(i for i in wanted - known
+                           if not i.startswith(("QUESTITEM_TOKEN_EVENT", "QUESTITEM_TOKEN_ARENA"))
+                           and "NONTRADABLE" not in i and "UNLOCK" not in i)
         client = AodpClient(
             server=config.server,
             prices_cache_ttl_seconds=min(60, config.refresh_seconds),
@@ -199,7 +226,32 @@ def main(argv: list[str] | None = None) -> int:
         web_store = FlipDataStore()
         web_store.client = client
         web_store.last_config = config
-        start_web_server(web_store, port=config.web_port)
+        try:
+            start_web_server(web_store, port=config.web_port)
+        except OSError as exc:
+            if args.desktop and _dashboard_running(config.web_port):
+                # Another copy is already running: just show its dashboard.
+                from albion_flips.desktop import open_desktop_window
+                open_desktop_window(url=f"http://127.0.0.1:{config.web_port}", title="Albion Market Pulse")
+                return 0
+            err_console.print(f"[bold red]Cannot start the dashboard on port {config.web_port}:[/bold red] {exc}")
+            return 1
+
+        # Start the Albion Data Client in the background so in-game market
+        # scans stream into the dashboard (Windows; needs Npcap).
+        if config.sniffer_enabled and not args.offline:
+            import atexit
+            from albion_flips.sniffer import SnifferManager
+
+            sniffer = SnifferManager(
+                port=config.web_port,
+                auto_download=config.sniffer_auto_download,
+                hide_window=config.sniffer_hide_window,
+                share_with_aodp=config.sniffer_share_with_aodp,
+            )
+            web_store.sniffer_manager = sniffer
+            sniffer.start_async()
+            atexit.register(sniffer.stop)
 
     notifier = Notifier(
         threshold_silver=config.notify_profit_silver,
@@ -273,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
                 config=config,
             )
 
-        notifier.check_and_notify(flips, item_names=ITEM_NAMES)
+        notifier.check_and_notify(flips, item_names=load_item_names())
 
         table = build_table(
             flips=flips,
@@ -289,9 +341,6 @@ def main(argv: list[str] | None = None) -> int:
     if web_store:
         web_store.set_refresh_callback(lambda: run_refresh(bypass_cache=True))
 
-    # Initial refresh
-    flips = run_refresh()
-
     if args.desktop:
         import threading
         from albion_flips.desktop import open_desktop_window
@@ -299,6 +348,9 @@ def main(argv: list[str] | None = None) -> int:
         stop_event = threading.Event()
 
         def background_loop():
+            # The first full scan takes about a minute, so it runs here and the
+            # window opens immediately; the dashboard fills in when it finishes.
+            run_refresh()
             while not stop_event.is_set():
                 stop_event.wait(timeout=config.refresh_seconds)
                 if not stop_event.is_set():
@@ -313,7 +365,12 @@ def main(argv: list[str] | None = None) -> int:
             title=f"Albion Market Pulse — Desktop Companion ({config.server.title()} Server)",
             on_closed=lambda: stop_event.set(),
         )
+        if web_store.sniffer_manager is not None:
+            web_store.sniffer_manager.stop()
         return 0
+
+    # Initial refresh
+    flips = run_refresh()
 
     if args.once or not args.watch:
         return 0
