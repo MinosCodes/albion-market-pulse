@@ -24,6 +24,24 @@ class ConfigError(ValueError):
 
 
 @dataclass(slots=True)
+class ServiceConfig:
+    """Settings for running as a Linux server (``python -m albion_flips.server``).
+
+    Kept in the ``service`` block of config.json because ``server`` already
+    means the AODP region.
+    """
+
+    data_dir: str = "data/server"          # SQLite history and caches
+    public_url: str = ""                   # e.g. https://pulse.example.com, used to print the links
+    access_key: str = ""                   # opens the login link /login?k=...; empty = no login needed
+    ingest_key: str = ""                   # required in the live-client URL /api/ingest/<key>
+    public_read: bool = False              # True = anyone may view, only changes need the login
+    allow_local_ingest: bool = True        # the Data Client on the same machine may post without key
+    raw_keep_days: int = 7                 # price samples kept this long
+    daily_keep_days: int = 120             # daily history kept this long
+
+
+@dataclass(slots=True)
 class AppConfig:
     server: str = "europe"
     cities: list[str] = field(
@@ -66,6 +84,23 @@ class AppConfig:
     notify_profit_silver: int | None = None
     web_enabled: bool = False
     web_port: int = 8765
+    # Only 127.0.0.1 by default: the ingest/override endpoints have no login in desktop mode,
+    # so the dashboard must not be reachable from other machines on the network.
+    web_host: str = "127.0.0.1"
+    # Robust pricing (see robust.py). Uses the 7-day average from history when available.
+    robust_prices: bool = True
+    bait_floor: float = 0.85
+    bait_replace: float = 0.95
+    sell_cap: float = 1.10
+    # When the destination city has no 7-day history, the item's average in the other cities is used,
+    # with more headroom because prices legitimately differ between cities.
+    sell_cap_cross: float = 1.5
+    market_share: float = 0.10
+    capital_silver: int | None = None
+    # AODP allows ~180 requests/min and 300 per 5 min PER IP. Lower these if other tools share the IP.
+    aodp_rate_per_minute: int = 170
+    aodp_rate_per_5min: int = 285
+    service: ServiceConfig = field(default_factory=ServiceConfig)
 
     @property
     def active_tax_rate(self) -> float:
@@ -105,6 +140,17 @@ class AppConfig:
             raise ConfigError("refresh_seconds must be positive")
         if self.top_n <= 0:
             raise ConfigError("top_n must be positive")
+        if not 0 < self.market_share <= 1:
+            raise ConfigError("market_share must be between 0 and 1")
+        if not 0 < self.bait_floor <= 1 or not 0 < self.bait_replace <= 1.5:
+            raise ConfigError("bait_floor must be in (0, 1] and bait_replace in (0, 1.5]")
+        if self.sell_cap < 1 or self.sell_cap_cross < 1:
+            raise ConfigError("sell_cap and sell_cap_cross must be at least 1.0")
+        if not 0 < self.aodp_rate_per_minute <= 180 or not 0 < self.aodp_rate_per_5min <= 300:
+            raise ConfigError("aodp_rate_per_minute must be 1..180 and aodp_rate_per_5min 1..300 (AODP limits)")
+        for key in (self.service.access_key, self.service.ingest_key):
+            if key and len(key) < 16:
+                raise ConfigError("service keys must be at least 16 characters (use: python -m albion_flips.server --init-keys)")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AppConfig:
@@ -148,6 +194,17 @@ class AppConfig:
             notify_profit_silver=data.get("notify_profit_silver"),
             web_enabled=web_enabled,
             web_port=web_port,
+            web_host=str(web_dict.get("host", "127.0.0.1")),
+            robust_prices=bool(data.get("robust_prices", True)),
+            bait_floor=float(data.get("bait_floor", 0.85)),
+            bait_replace=float(data.get("bait_replace", 0.95)),
+            sell_cap=float(data.get("sell_cap", 1.10)),
+            sell_cap_cross=float(data.get("sell_cap_cross", 1.5)),
+            market_share=float(data.get("market_share", 0.10)),
+            capital_silver=(int(data["capital_silver"]) if data.get("capital_silver") is not None else None),
+            aodp_rate_per_minute=int(data.get("aodp_rate_per_minute", 170)),
+            aodp_rate_per_5min=int(data.get("aodp_rate_per_5min", 285)),
+            service=ServiceConfig(**{k: v for k, v in (data.get("service") or {}).items() if k in ServiceConfig.__dataclass_fields__}),
         )
         cfg.validate()
         return cfg

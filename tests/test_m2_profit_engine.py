@@ -219,7 +219,7 @@ def test_calculate_crafting_profit_and_analyzer() -> None:
             buy_price_max_date="",
         ),
     ]
-    crafts = analyze_crafting(prices, cfg, focus=False)
+    crafts = analyze_crafting(prices, cfg, focus=False, now=TEST_NOW)
     assert len(crafts) >= 1
     t4_plank_craft = [c for c in crafts if c.item_id == "T4_PLANKS"][0]
     assert t4_plank_craft.craft_city == "Fort Sterling"
@@ -424,7 +424,7 @@ def test_tier_3_refining_supported() -> None:
         }),
     ]
 
-    crafts = analyze_crafting(prices, cfg, focus=False)
+    crafts = analyze_crafting(prices, cfg, focus=False, now=TEST_NOW)
     t3_wood_craft = [c for c in crafts if c.item_id == "T3_PLANKS"]
     assert len(t3_wood_craft) >= 1
     assert t3_wood_craft[0].tier == 3
@@ -635,7 +635,7 @@ def test_martlock_cape_crafting() -> None:
         ),
     ]
 
-    crafts = analyze_crafting(prices, cfg, focus=False)
+    crafts = analyze_crafting(prices, cfg, focus=False, now=TEST_NOW)
     martlock_crafts = [c for c in crafts if c.item_id == "T4_CAPEITEM_FW_MARTLOCK"]
     assert len(martlock_crafts) == 1
 
@@ -719,7 +719,7 @@ def test_crafting_synchronized_with_scanned_prices_and_overrides() -> None:
 
     # Without overrides: newer cloth price (2500) overwrote older (1000)
     # T4 Bag material cost: 8 * 2500 + 8 * 1000 = 20000 + 8000 = 28000
-    crafts = analyze_crafting(prices, cfg, focus=False)
+    crafts = analyze_crafting(prices, cfg, focus=False, now=TEST_NOW)
     t4_bag = [c for c in crafts if c.item_id == "T4_BAG"][0]
     assert t4_bag.material_cost == 28000.0
     assert t4_bag.sell_city == "Black Market"
@@ -727,7 +727,7 @@ def test_crafting_synchronized_with_scanned_prices_and_overrides() -> None:
 
     # With user override: user manually sets T4_CLOTH in Martlock to 500
     overrides = {("T4_CLOTH", "Martlock", 1): 500}
-    crafts_overridden = analyze_crafting(prices, cfg, focus=False, price_overrides=overrides)
+    crafts_overridden = analyze_crafting(prices, cfg, focus=False, now=TEST_NOW, price_overrides=overrides)
     t4_bag_ov = [c for c in crafts_overridden if c.item_id == "T4_BAG"][0]
     # Overridden cost: 8 * 500 + 8 * 1000 = 4000 + 8000 = 12000
     assert t4_bag_ov.material_cost == 12000.0
@@ -827,8 +827,10 @@ def test_dead_item_filtering_and_daily_profit_velocity() -> None:
     assert len(flips) == 1
     flip = flips[0]
     assert flip.avg_daily_volume == 50.0
-    # est_daily_profit = profit_per_item * volume
-    assert flip.est_daily_profit == flip.profit_per_item * 50.0
+    # est_daily_profit = profit_per_item * realistic units per day. You cannot buy out the whole
+    # destination market every day, so only cfg.market_share (default 10 %) of the volume counts.
+    assert flip.units_per_day == pytest.approx(50.0 * cfg.market_share)
+    assert flip.est_daily_profit == pytest.approx(flip.profit_per_item * 50.0 * cfg.market_share)
 
 
 

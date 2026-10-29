@@ -35,6 +35,15 @@ albion-market-analyzer/
   docs/KICKOFF_PROMPT.md  prompt used to start the build
   albion_flips/           package (create it)
     config.py  api.py  models.py  profit.py  analyzer.py  cli.py  web.py  notify.py
+    robust.py     bait/spike checks against the 7-day average, realistic units per day (pure functions)
+    storage.py    SQLite price samples + daily history, 7/30-day references (server mode)
+    ratelimit.py  sliding-window limiter for AODP (170/min, 285/5 min by default)
+    server.py     headless Linux server: poller, login link, ingest key, /healthz
+    liveclient.py Windows live client logic (stdlib only): validation, settings, checksum-verified Data Client install
+  deploy/linux/           install.sh, hardened systemd unit, server config example, Caddyfile example
+  client/windows/         live client GUI (pulse_client.py, PyInstaller spec, defaults.json) + script version
+  .github/workflows/      windows-client.yml builds AlbionMarketPulseClient.exe for every release
+  docs/LINUX_SERVER.md    server version: architecture, reasons for each change, setup, security
   tests/                  pytest tests
   tests/fixtures/         sample AODP responses with hand-computed expected results
 ```

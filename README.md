@@ -35,6 +35,19 @@ A real-time market analysis tool and interactive web dashboard for **Albion Onli
 
 ---
 
+## 🐧 Linux Server Version (branch `linux-server`)
+
+Run the analyzer 24/7 on a Linux server and open the dashboard from any device:
+
+- **Always-on polling** of AODP (rate-limited to stay below AODP's per-IP limits), even when nobody has the dashboard open.
+- **Windows live client** (`AlbionMarketPulseClient.exe`, attached to every GitHub release): paste your pairing link once; from then on it starts the official Albion Data Client (checksum-verified download) so your market visits go to AODP *and* to your server.
+- **Robust prices**: bait listings, contradictory order books and price spikes are checked against the 7-day average; daily profit uses a realistic market share instead of the whole daily volume.
+- **SQLite history**, login link with a 400-day cookie, optional public read-only mode, hardened systemd unit.
+
+Setup, design reasons and security model: **[docs/LINUX_SERVER.md](docs/LINUX_SERVER.md)**.
+
+---
+
 ## 🏗️ Architecture: How Data Flows
 
 ```

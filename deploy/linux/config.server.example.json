@@ -1,0 +1,41 @@
+{
+  "server": "europe",
+  "cities": ["Bridgewatch", "Fort Sterling", "Lymhurst", "Martlock", "Thetford", "Caerleon", "Black Market"],
+  "qualities": [1, 2, 3, 4, 5],
+  "premium": true,
+  "tax_rate_premium": 0.04,
+  "tax_rate_standard": 0.08,
+  "setup_fee_rate": 0.025,
+  "min_profit_silver": 500,
+  "min_margin_pct": 5,
+  "max_margin_pct": 300,
+  "min_daily_volume": 50,
+  "volume_days": 3,
+  "max_price_age_minutes": 240,
+  "stack_size": 100,
+  "refresh_seconds": 300,
+  "top_n": 25,
+  "robust_prices": true,
+  "bait_floor": 0.85,
+  "bait_replace": 0.95,
+  "sell_cap": 1.10,
+  "market_share": 0.10,
+  "capital_silver": null,
+  "aodp_rate_per_minute": 170,
+  "aodp_rate_per_5min": 285,
+  "notify_profit_silver": null,
+  "web": {
+    "host": "127.0.0.1",
+    "port": 8765
+  },
+  "service": {
+    "data_dir": "/var/lib/albion-pulse",
+    "public_url": "",
+    "access_key": "",
+    "ingest_key": "",
+    "public_read": false,
+    "allow_local_ingest": false,
+    "raw_keep_days": 7,
+    "daily_keep_days": 120
+  }
+}

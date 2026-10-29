@@ -93,6 +93,12 @@ class FlipOpportunity:
     est_daily_profit: float = 0.0
     weight: float = 0.5
     profit_per_kg: float = 0.0
+    # Robust pricing (robust.py): what the market showed vs. what we calculated with
+    raw_buy_price: int = 0
+    raw_sell_price: int = 0
+    price_note: str = ""            # "bait", "inverted_book", "sell_cap", combined with "+"
+    ref_avg7: float | None = None   # 7-day average in the destination city
+    units_per_day: float = 0.0      # realistic units per day (market share, capital)
 
 
 @dataclass(slots=True)
@@ -115,6 +121,7 @@ class CraftingOpportunity:
     enchant: int = 0
     item_value: float = 0.0
     station_fee: float = 0.0
+    data_age_minutes: float | None = None  # oldest price used in the calculation
 
 
 @dataclass(slots=True)

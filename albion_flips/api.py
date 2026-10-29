@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 import requests
 
 from albion_flips.models import HistoryRecord, PriceRecord
+from albion_flips.ratelimit import RateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class AodpClient:
         history_cache_ttl_seconds: int = 21600,  # 6 hours
         max_retries: int = 5,
         backoff_factor: float = 1.0,
+        rate_limiter: RateLimiter | None | bool = True,
     ) -> None:
         self.server = server.lower()
         if self.server not in self.SERVER_HOSTS:
@@ -55,6 +57,9 @@ class AodpClient:
         self.history_cache_ttl_seconds = history_cache_ttl_seconds
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
+        # True = default limiter (stays below AODP's 180/min and 300/5 min), False/None = off (tests)
+        self.rate_limiter: RateLimiter | None = RateLimiter() if rate_limiter is True else (rate_limiter or None)
+        self.requests_sent = 0
 
     def _get_cache_path(self, key: str) -> Path | None:
         if not self.cache_dir:
@@ -128,6 +133,9 @@ class AodpClient:
 
         while True:
             try:
+                if self.rate_limiter is not None:
+                    self.rate_limiter.acquire()
+                self.requests_sent += 1
                 response = self.session.get(url, timeout=15)
                 if response.status_code == 200:
                     return response.json()

@@ -138,8 +138,14 @@ def get_item_value(item_id: str) -> float:
     """
     tier = parse_tier(item_id)
     enchant = parse_enchant(item_id)
-    
-    # Base scale: 4**(tier - 2)
+
+    base_id = item_id.split("@")[0]
+    if any(base_id.endswith(f"_{b}") or f"_{b}_LEVEL" in base_id for b in ("PLANKS", "METALBAR", "CLOTH", "LEATHER", "STONEBLOCK")):
+        # Refined resources: exact values from ao-bin-dumps items.xml, T3 = 8 ... T8 = 256 (2 ** tier).
+        # The generic curve below gave 4x too much for T6 (256 instead of 64) and 16x for T8.
+        return round(float(2 ** tier) * float(2 ** enchant), 1)
+
+    # Gear and other items: approximate scale 4**(tier - 2). TODO(verify) against ao-bin-dumps.
     base_val = float(4 ** max(0, tier - 2))
     enchant_mult = float(2 ** enchant)
     return round(base_val * enchant_mult, 1)

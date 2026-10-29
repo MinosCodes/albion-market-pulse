@@ -1,0 +1,2 @@
+# Linux server mode (python -m albion_flips.server). No terminal UI or desktop window needed.
+requests>=2.31

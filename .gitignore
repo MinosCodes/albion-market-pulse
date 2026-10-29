@@ -11,4 +11,7 @@ build/
 *.zip
 albiondata-client/
 .DS_Store
+# server mode: local data directory and the Windows client's settings (contains the ingest key)
+data/server/
+client/windows/client.json
 

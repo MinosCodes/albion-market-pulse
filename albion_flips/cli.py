@@ -199,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         web_store = FlipDataStore()
         web_store.client = client
         web_store.last_config = config
-        start_web_server(web_store, port=config.web_port)
+        start_web_server(web_store, port=config.web_port, host=config.web_host)
 
     notifier = Notifier(
         threshold_silver=config.notify_profit_silver,

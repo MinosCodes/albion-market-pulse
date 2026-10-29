@@ -23,10 +23,49 @@ from albion_flips.profit import (
     calculate_sell_order_profit,
     calculate_total_profit,
 )
+from albion_flips.robust import Reference, check_buy_price, check_sell_price, units_per_day
 from albion_flips.weights import get_item_weight
 
 
 logger = logging.getLogger(__name__)
+
+ReferenceMap = Mapping[tuple[str, str, int], Reference]
+
+
+def seconds_between(a: str, b: str) -> float | None:
+    """Seconds between two AODP timestamps, None if either is missing."""
+    da, db = parse_aodp_datetime(a), parse_aodp_datetime(b)
+    if da is None or db is None:
+        return None
+    return (da - db).total_seconds()
+
+
+def references_from_history(history: Sequence[HistoryRecord] | Mapping, now: datetime) -> dict[tuple[str, str, int], Reference]:
+    """7-day reference prices from AODP daily history when no SQLite store is available (desktop/CLI).
+
+    Uses full past days only; today's partial day would bias the average.
+    """
+    records = history.values() if isinstance(history, Mapping) else history
+    today = now.date()
+    out: dict[tuple[str, str, int], Reference] = {}
+    for rec in records:
+        s7 = c7 = s30 = c30 = 0.0
+        for pt in rec.data:
+            dt = parse_aodp_datetime(pt.timestamp)
+            if dt is None or pt.item_count <= 0:
+                continue
+            age_days = (today - dt.date()).days
+            if 1 <= age_days <= 30:
+                s30 += pt.avg_price * pt.item_count
+                c30 += pt.item_count
+                if age_days <= 7:
+                    s7 += pt.avg_price * pt.item_count
+                    c7 += pt.item_count
+        if c30:
+            out[(rec.item_id, rec.location, rec.quality)] = Reference(
+                avg7=(s7 / c7) if c7 else None, avg30=s30 / c30, vol7=c7 / 7.0
+            )
+    return out
 
 EMPTY_DATE = "0001-01-01T00:00:00"
 
@@ -230,8 +269,14 @@ def analyze_flips(
     now: datetime | None = None,
     fulfilled_orders: dict[tuple[str, str, int], datetime] | None = None,
     price_overrides: dict[tuple[str, str, int], int] | None = None,
+    reference: ReferenceMap | None = None,
 ) -> list[FlipOpportunity]:
     """Analyzes market prices and history to produce ranked flip opportunities.
+
+    With ``config.robust_prices`` (default) buy and sell prices are checked against
+    the item's 7-day average (``reference``; built from ``history`` when not given),
+    see robust.py. ``est_daily_profit`` uses a realistic share of the destination
+    market instead of the whole daily volume.
 
     Applies domain rules in order:
     1. Deduplicate prices keeping freshest records and applying fulfillment & overrides.
@@ -268,6 +313,23 @@ def analyze_flips(
 
     tax_rate = config.active_tax_rate
     setup_rate = config.setup_fee_rate
+    robust = config.robust_prices
+    if robust and reference is None:
+        reference = references_from_history(history_map, now)
+    ref_map: ReferenceMap = reference or {}
+    # Fallback for destinations without own history: median 7-day average of the same item and
+    # quality across all cities that have one. Many enchanted items trade rarely in a given city;
+    # without this, any troll listing there passed as a multi-million "flip".
+    cross_ref: dict[tuple[str, int], Reference] = {}
+    if robust:
+        per_item: dict[tuple[str, int], list[float]] = {}
+        for (r_item, r_city, r_q), r in ref_map.items():
+            if r.avg7 and r.avg7 > 0 and r_city != "Black Market":
+                per_item.setdefault((r_item, r_q), []).append(r.avg7)
+        for k, vals in per_item.items():
+            vals.sort()
+            mid = len(vals) // 2
+            cross_ref[k] = Reference(avg7=vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2)
 
     opportunities: list[FlipOpportunity] = []
 
@@ -286,8 +348,21 @@ def analyze_flips(
             if buy_age is None or buy_age > config.max_price_age_minutes:
                 continue
 
-            buy_price = buy_rec.sell_price_min
+            raw_buy_price = buy_rec.sell_price_min
+            buy_price = raw_buy_price
             buy_quality = buy_rec.quality
+            buy_note = ""
+            if robust:
+                checked_buy = check_buy_price(
+                    live_sell_min=raw_buy_price,
+                    ref=ref_map.get((item_id, buy_rec.city, buy_quality)),
+                    live_buy_max=buy_rec.buy_price_max,
+                    seconds_between=seconds_between(buy_rec.buy_price_max_date, buy_rec.sell_price_min_date),
+                    floor=config.bait_floor,
+                    replace=config.bait_replace,
+                )
+                buy_price = int(round(checked_buy.price))
+                buy_note = checked_buy.reason
 
             for sell_rec in records:
                 if sell_rec.city == buy_rec.city:
@@ -300,19 +375,31 @@ def analyze_flips(
                 # Evaluate Exit 1: Sell Order (sell_price_min in city B)
                 # Listing a sell order in City B requires the exact same quality as purchased
                 opt_order: tuple[float, float, int, float] | None = None
+                dest_ref = ref_map.get((item_id, sell_rec.city, sell_rec.quality)) if robust else None
+                order_note = instant_note = ""
+                sell_cap = config.sell_cap
+                cap_note = "sell_cap"
+                if robust and not (dest_ref and dest_ref.avg7):
+                    dest_ref = cross_ref.get((item_id, sell_rec.quality))
+                    sell_cap, cap_note = config.sell_cap_cross, "sell_cap_cross"
                 if sell_rec.quality == buy_quality:
                     if sell_rec.sell_price_min > 0 and not sell_rec.sell_price_min_date.startswith("0001-01-01"):
                         sell_order_age = calculate_age_minutes(sell_rec.sell_price_min_date, now)
                         if sell_order_age is not None and sell_order_age <= config.max_price_age_minutes:
+                            order_price = sell_rec.sell_price_min
+                            if robust:
+                                checked_sell = check_sell_price(order_price, dest_ref, sell_cap)
+                                order_price = int(round(checked_sell.price))
+                                order_note = cap_note if checked_sell.adjusted else ("no_history" if not dest_ref else "")
                             profit_order = calculate_sell_order_profit(
                                 buy_price=buy_price,
-                                sell_price=sell_rec.sell_price_min,
+                                sell_price=order_price,
                                 tax_rate=tax_rate,
                                 setup_fee_rate=setup_rate,
                             )
                             margin_order = calculate_margin(profit_order, buy_price)
                             flip_order_age = max(buy_age, sell_order_age)
-                            opt_order = (profit_order, margin_order, sell_rec.sell_price_min, flip_order_age)
+                            opt_order = (profit_order, margin_order, order_price, flip_order_age)
 
                 # Evaluate Exit 2: Instant Sell into Buy Order (buy_price_max in city B)
                 # In Albion Online, any item of quality >= buy order quality can fulfill the buy order!
@@ -321,14 +408,20 @@ def analyze_flips(
                     if sell_rec.buy_price_max > 0 and not sell_rec.buy_price_max_date.startswith("0001-01-01"):
                         instant_age = calculate_age_minutes(sell_rec.buy_price_max_date, now)
                         if instant_age is not None and instant_age <= config.max_price_age_minutes:
+                            bid = sell_rec.buy_price_max
+                            if robust:
+                                # A single very high buy order usually only takes a few units.
+                                checked_bid = check_sell_price(bid, dest_ref, sell_cap)
+                                bid = int(round(checked_bid.price))
+                                instant_note = cap_note if checked_bid.adjusted else ("no_history" if not dest_ref else "")
                             profit_instant = calculate_instant_profit(
                                 buy_price=buy_price,
-                                buyer_bid=sell_rec.buy_price_max,
+                                buyer_bid=bid,
                                 tax_rate=tax_rate,
                             )
                             margin_instant = calculate_margin(profit_instant, buy_price)
                             flip_instant_age = max(buy_age, instant_age)
-                            opt_instant = (profit_instant, margin_instant, sell_rec.buy_price_max, flip_instant_age)
+                            opt_instant = (profit_instant, margin_instant, bid, flip_instant_age)
 
                 # If neither exit is valid and fresh, skip
                 if opt_order is None and opt_instant is None:
@@ -401,14 +494,22 @@ def analyze_flips(
 
                 total_profit = calculate_total_profit(chosen_profit, config.stack_size)
 
-                # Est. Daily Profit / Turnover Velocity
-                if dest_volume is not None and dest_volume > 0:
-                    est_daily_profit = chosen_profit * dest_volume
-                else:
-                    est_daily_profit = 0.0
+                # Est. Daily Profit: only the share of the destination market you can realistically
+                # sell into (default 10 %), further limited by capital if configured. The old formula
+                # (profit x whole daily volume) assumed buying out the entire market every day.
+                daily_units = units_per_day(
+                    dest_volume,
+                    market_share=config.market_share,
+                    capital=config.capital_silver,
+                    unit_cost=buy_price,
+                )
+                est_daily_profit = chosen_profit * daily_units if daily_units > 0 else 0.0
 
                 item_weight = get_item_weight(item_id)
                 profit_kg = calculate_profit_per_kg(chosen_profit, item_weight)
+                chosen_note = order_note if chosen_exit == ExitType.SELL_ORDER else instant_note
+                note = "+".join(n for n in (buy_note, chosen_note) if n)
+                raw_sell = sell_rec.sell_price_min if chosen_exit == ExitType.SELL_ORDER else sell_rec.buy_price_max
 
                 opportunities.append(
                     FlipOpportunity(
@@ -429,6 +530,11 @@ def analyze_flips(
                         est_daily_profit=est_daily_profit,
                         weight=item_weight,
                         profit_per_kg=profit_kg,
+                        raw_buy_price=raw_buy_price,
+                        raw_sell_price=raw_sell,
+                        price_note=note,
+                        ref_avg7=dest_ref.avg7 if dest_ref else None,
+                        units_per_day=daily_units,
                     )
                 )
 
@@ -533,12 +639,22 @@ def analyze_crafting(
     now: datetime | None = None,
     fulfilled_orders: dict[tuple[str, str, int], datetime] | None = None,
     price_overrides: dict[tuple[str, str, int], int] | None = None,
+    reference: ReferenceMap | None = None,
 ) -> list[CraftingOpportunity]:
     """Calculates crafting and refining profit across royal cities, Caerleon, and Black Market.
 
     Identifies profitable refining (Planks, Metal Bars, Cloth, Leather, Stone Blocks)
     and equipment crafting (Bags, Capes, Faction Capes, Weapons, Armors, Royal Gear).
+
+    Only prices younger than ``config.max_price_age_minutes`` are used (the flip
+    analysis always did this, crafting did not). With ``reference`` the sell price
+    is capped at ``config.sell_cap`` x the 7-day average of that city, so a single
+    high listing does not become the expected sale price.
     """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     clean_prices = deduplicate_prices(
         prices=prices,
         now=now,
@@ -547,22 +663,31 @@ def analyze_crafting(
     )
     tax_rate = config.tax_rate_premium if config.premium else config.tax_rate_standard
     setup_fee_rate = config.setup_fee_rate
+    ref_map: ReferenceMap = (reference or {}) if config.robust_prices else {}
+
+    def fresh(date_str: str) -> bool:
+        age = calculate_age_minutes(date_str, now)
+        return age is not None and age <= config.max_price_age_minutes
 
     cheapest_sell: dict[str, tuple[int, str]] = {}
     highest_sell: dict[str, tuple[int, str]] = {}
     city_prices: dict[tuple[str, str], int] = {}
 
     for p in clean_prices:
-        if p.sell_price_min > 0:
+        if p.sell_price_min > 0 and fresh(p.sell_price_min_date):
             curr = (p.sell_price_min, p.city)
             if p.item_id not in cheapest_sell or p.sell_price_min < cheapest_sell[p.item_id][0]:
                 cheapest_sell[p.item_id] = curr
-            if p.item_id not in highest_sell or p.sell_price_min > highest_sell[p.item_id][0]:
-                highest_sell[p.item_id] = curr
+            listed = p.sell_price_min
+            ref = ref_map.get((p.item_id, p.city, p.quality))
+            if ref is not None:
+                listed = int(round(check_sell_price(listed, ref, config.sell_cap).price))
+            if p.item_id not in highest_sell or listed > highest_sell[p.item_id][0]:
+                highest_sell[p.item_id] = (listed, p.city)
             city_prices[(p.item_id, p.city)] = p.sell_price_min
 
         # If item has a Black Market buy order, crafters can sell directly to Black Market!
-        if p.city == "Black Market" and p.buy_price_max > 0:
+        if p.city == "Black Market" and p.buy_price_max > 0 and fresh(p.buy_price_max_date):
             curr_bm = (p.buy_price_max, p.city)
             if p.item_id not in highest_sell or p.buy_price_max > highest_sell[p.item_id][0]:
                 highest_sell[p.item_id] = curr_bm
@@ -592,7 +717,14 @@ def analyze_crafting(
                     raw_id = f"T{tier}_{raw_base}_LEVEL{enchant}@{enchant}"
 
                 prev_tier = tier - 1
-                prev_id = f"T{prev_tier}_{out_base}"
+                # Enchanted refining from T5 on needs the previous tier with the SAME enchantment
+                # (T5.1 bar = 3x T5.1 ore + 1x T4.1 bar). Only T4.x uses plain T3, because T3 has
+                # no enchanted version. The original code always used the plain previous tier,
+                # which made enchanted refining look cheaper than it is.
+                if enchant > 0 and prev_tier >= 4:
+                    prev_id = f"T{prev_tier}_{out_base}_LEVEL{enchant}@{enchant}"
+                else:
+                    prev_id = f"T{prev_tier}_{out_base}"
 
                 raw_info = city_prices.get((raw_id, bonus_city))
                 if not raw_info and raw_id in cheapest_sell:
@@ -605,12 +737,16 @@ def analyze_crafting(
                 if not prev_info and prev_id in cheapest_sell:
                     prev_info, _ = cheapest_sell[prev_id]
                 if not prev_info or prev_info <= 0:
-                    prev_info = 100 * (prev_tier - 2)
+                    # No fresh price for the previous tier: skip instead of inventing one.
+                    # (The original fallback of 100 x (tier - 2) silver produced fake profits.)
+                    continue
 
                 raw_qty = raw_qty_map[tier]
                 mat_cost = (raw_qty * raw_info) + prev_info
 
                 rrr = 0.539 if focus else 0.367
+                # The station fee is subtracted in the dashboard (it depends on the plot the user picks),
+                # based on weights.get_item_value().
                 effective_cost = mat_cost * (1.0 - rrr)
 
                 if out_id not in highest_sell:

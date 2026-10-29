@@ -1,0 +1,5 @@
+{
+  "server_url": "https://pulse.example.com",
+  "ingest_key": "paste service.ingest_key from the server's /etc/albion-pulse/config.json",
+  "aodp_upload": "https+pow://pow.europe.albion-online-data.com"
+}

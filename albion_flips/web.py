@@ -1914,6 +1914,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       return true;
     }
 
+    // Robust pricing (server branch): show when a live price was not trusted.
+    function priceNoteBadge(f) {
+      if (!f || !f.price_note) return '';
+      const labels = {bait: 'Bait price', inverted_book: 'Order book mismatch', sell_cap: 'Sell price capped',
+                      sell_cap_cross: 'Capped (other cities)', no_history: 'No price history'};
+      const parts = f.price_note.split('+').map(k => labels[k] || k);
+      const tip = 'Market showed buy ' + (f.raw_buy_price || '-') + ' / sell ' + (f.raw_sell_price || '-') +
+        (f.ref_avg7 ? ', 7-day average ' + f.ref_avg7 : '') + '. Calculated with ' + f.buy_price + ' / ' + f.sell_price + '.';
+      return ' <span class="badge" style="background:#3b2f12;color:#fbbf24;border:1px solid #92400e" title="' + tip + '">&#9878; ' + parts.join(', ') + '</span>';
+    }
+
     function renderFlips() {
       const tbody = document.getElementById('flips-body');
       let filtered = flipsData.filter(f => passesFilters(f, 'flip'));
@@ -1992,7 +2003,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         // Deal Rating Badge
         const dealClass = 'deal-' + (f.deal_tier || 'c').toLowerCase();
-        const dealBadge = `<span class="badge ${dealClass}">${f.deal_label || 'DEAL'}</span>`;
+        const dealBadge = `<span class="badge ${dealClass}">${f.deal_label || 'DEAL'}</span>` + priceNoteBadge(f);
 
         const buyP = Number(f.buy_price) || 0;
         const sellP = Number(f.sell_price) || 0;
@@ -2144,7 +2155,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         // Deal Rating Badge
         const dealClass = 'deal-' + (f.deal_tier || 'c').toLowerCase();
-        const dealBadge = `<span class="badge ${dealClass}">${f.deal_label || 'DEAL'}</span>`;
+        const dealBadge = `<span class="badge ${dealClass}">${f.deal_label || 'DEAL'}</span>` + priceNoteBadge(f);
 
         const buyP = Number(f.buy_price) || 0;
         const sellP = Number(f.sell_price) || 0;
@@ -2396,7 +2407,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         // Deal Rating Badge
         const dealClass = 'deal-' + (f.deal_tier || 'c').toLowerCase();
-        const dealBadge = `<span class="badge ${dealClass}">${f.deal_label || 'DEAL'}</span>`;
+        const dealBadge = `<span class="badge ${dealClass}">${f.deal_label || 'DEAL'}</span>` + priceNoteBadge(f);
 
         // Mount Carry & Silver/kg calculations
         const weight = Math.max(0.05, Number(f.weight) || 0.5);
@@ -3451,8 +3462,10 @@ LOCATION_ID_TO_CITY: dict[str, str] = {
 class FlipDataStore:
     """Thread-safe storage for flip opportunities, crafting data, and recent prices."""
 
-    def __init__(self) -> None:
+    def __init__(self, overrides_path: Path | str | None = None) -> None:
         self._lock = threading.Lock()
+        # Server mode keeps this in its data directory (the app directory is read-only under systemd).
+        self.overrides_path = Path(overrides_path) if overrides_path else Path(".cache/overrides.json")
         self.server: str = "europe"
         self.last_refresh: str = ""
         self.flips: list[dict[str, Any]] = []
@@ -3482,10 +3495,14 @@ class FlipDataStore:
         self._recompute_timer: threading.Timer | None = None
         self._recompute_lock = threading.Lock()
         self._is_recomputing: bool = False
+        # Server mode (albion_flips.server): 7-day reference prices from SQLite and a hook that
+        # stores live-client prices persistently. Both stay None in desktop mode.
+        self.reference: dict[tuple[str, str, int], Any] | None = None
+        self.ingest_listener: Callable[[list[PriceRecord]], Any] | None = None
         self._load_overrides()
 
     def _load_overrides(self) -> None:
-        cache_file = Path(".cache/overrides.json")
+        cache_file = self.overrides_path
         if cache_file.is_file():
             try:
                 with open(cache_file, "r", encoding="utf-8") as f:
@@ -3502,7 +3519,7 @@ class FlipDataStore:
 
     def _save_overrides(self) -> None:
         try:
-            cache_file = Path(".cache/overrides.json")
+            cache_file = self.overrides_path
             cache_file.parent.mkdir(parents=True, exist_ok=True)
             payload = {
                 "fulfilled": [
@@ -3677,6 +3694,7 @@ class FlipDataStore:
                     self.last_prices.append(new_p)
                     price_map[(item_id, city, quality)] = new_p
 
+            updated_records = [price_map[k] for k in aggregated if k in price_map]
             self.sniffer_packet_count += len(orders)
             if last_city:
                 self.sniffer_last_city = last_city
@@ -3736,6 +3754,12 @@ class FlipDataStore:
                     "timestamp": time.time(),
                 }
                 self.live_sniffer_events = [event] + [ev for ev in self.live_sniffer_events if not (ev["item_id"] == item_id and ev["city"] == city)][:9]
+
+        if self.ingest_listener is not None:
+            try:
+                self.ingest_listener(updated_records)
+            except Exception as e:
+                logger.error("Ingest listener failed: %s", e)
 
         if sync:
             self.recompute()
@@ -3842,6 +3866,7 @@ class FlipDataStore:
             now=now,
             fulfilled_orders=self.fulfilled_orders,
             price_overrides=self.price_overrides,
+            reference=self.reference,
         )
         self.update(
             server=self.server,
@@ -3973,6 +3998,12 @@ class FlipDataStore:
                 "sniffer_age_seconds": sniffer_age_secs,
                 "weight": round(o.weight, 2),
                 "profit_per_kg": round(o.profit_per_kg, 1),
+                # robust pricing (robust.py)
+                "raw_buy_price": o.raw_buy_price,
+                "raw_sell_price": o.raw_sell_price,
+                "price_note": o.price_note,
+                "ref_avg7": round(o.ref_avg7) if o.ref_avg7 else None,
+                "units_per_day": round(o.units_per_day, 1),
             }
 
 
@@ -3984,12 +4015,21 @@ class FlipDataStore:
         if current_bm_keys:
             self._previous_bm_keys = current_bm_keys
 
-        # Sort primarily by profit per item
-        serialized_flips.sort(key=lambda x: x["profit_per_item"], reverse=True)
-        serialized_flips = serialized_flips[:2500]
+        # Sort by profit per item, but before cutting to 2,500 rows keep flips whose destination has
+        # trade history first. Otherwise unverifiable listings on rarely traded items (often millions
+        # "profit" per piece) fill the list and push out real opportunities. Live data 2026-10-29:
+        # 2,480 of the 2,500 kept rows had no destination history.
+        def _keep_order(x: dict[str, Any]) -> tuple[int, float]:
+            unverified = x.get("history_missing") or "no_history" in (x.get("price_note") or "")
+            return (1 if unverified else 0, -x["profit_per_item"])
 
-        serialized_blackmarket.sort(key=lambda x: x["profit_per_item"], reverse=True)
+        serialized_flips.sort(key=_keep_order)
+        serialized_flips = serialized_flips[:2500]
+        serialized_flips.sort(key=lambda x: x["profit_per_item"], reverse=True)
+
+        serialized_blackmarket.sort(key=_keep_order)
         serialized_blackmarket = serialized_blackmarket[:2500]
+        serialized_blackmarket.sort(key=lambda x: x["profit_per_item"], reverse=True)
 
 
         # Clean & deduplicate prices first so all tabs are strictly synchronized:
@@ -4063,6 +4103,7 @@ class FlipDataStore:
                 now=now,
                 fulfilled_orders=self.fulfilled_orders,
                 price_overrides=self.price_overrides,
+                reference=self.reference,
             )
             for c in craft_ops[:500]:
                 serialized_crafting.append({
@@ -4093,6 +4134,7 @@ class FlipDataStore:
                 now=now,
                 fulfilled_orders=self.fulfilled_orders,
                 price_overrides=self.price_overrides,
+                reference=self.reference,
             )
             for c in focus_craft_ops[:150]:
                 serialized_focus_crafting.append({
@@ -4474,18 +4516,37 @@ class FlipRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
 
-def start_web_server(store: FlipDataStore, port: int = 8765) -> HTTPServer:
-    """Starts local dual-stack web server accessible via localhost or 127.0.0.1."""
-    class BoundHandler(FlipRequestHandler):
+class LocalThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+
+def start_web_server(
+    store: FlipDataStore,
+    port: int = 8765,
+    host: str = "127.0.0.1",
+    handler_cls: type[FlipRequestHandler] = FlipRequestHandler,
+) -> HTTPServer:
+    """Starts the web server.
+
+    Binds to 127.0.0.1 by default. The original version listened on all interfaces
+    ("::"), so anyone on the same network could post fake prices to /api/ingest or
+    overrides to /api/override, which have no login in desktop mode. Use host "::"
+    or "0.0.0.0" only behind the login of ``albion_flips.server``.
+    """
+    class BoundHandler(handler_cls):  # type: ignore[valid-type, misc]
         pass
 
     BoundHandler.store = store
-    try:
-        server: HTTPServer = DualStackHTTPServer(("::", port), BoundHandler)
-    except Exception:
-        server = HTTPServer(("0.0.0.0", port), BoundHandler)
+    server: HTTPServer
+    if host in ("::", ""):
+        try:
+            server = DualStackHTTPServer(("::", port), BoundHandler)
+        except Exception:
+            server = LocalThreadingHTTPServer(("0.0.0.0", port), BoundHandler)
+    else:
+        server = LocalThreadingHTTPServer((host, port), BoundHandler)
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    logger.info("Local web interface running at http://localhost:%d and http://127.0.0.1:%d", port, port)
+    logger.info("Web interface listening on %s port %d", host or "::", port)
     return server

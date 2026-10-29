@@ -1,0 +1,11 @@
+# Reverse proxy with automatic HTTPS. Replace the host name, then: systemctl reload caddy
+# Caddy passes X-Forwarded-For and X-Forwarded-Proto, which the server uses to
+# (a) never treat proxied requests as local and (b) set the login cookie as Secure.
+pulse.example.com {
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        -Server
+    }
+    reverse_proxy 127.0.0.1:8765
+}

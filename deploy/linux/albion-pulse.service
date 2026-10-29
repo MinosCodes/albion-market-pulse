@@ -1,0 +1,42 @@
+[Unit]
+Description=Albion Market Pulse (server mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=albion-pulse
+Group=albion-pulse
+WorkingDirectory=/opt/albion-pulse
+ExecStart=/opt/albion-pulse/venv/bin/python -m albion_flips.server --config /etc/albion-pulse/config.json
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=40
+
+# Hardening: the service may only write its data directory.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/albion-pulse
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
