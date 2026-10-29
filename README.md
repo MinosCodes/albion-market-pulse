@@ -1,294 +1,225 @@
-# ⚔️ Albion Market Analyzer & Arbitrage Engine
+<div align="center">
 
-A real-time market analysis tool and interactive web dashboard for **Albion Online**. It monitors prices from the community **Albion Online Data Project (AODP)**, calculates real net flip profits after market taxes and listing setup fees, detects Black Market arbitrage opportunities, and evaluates crafting profitability.
+<img src="assets/icon.png" width="112" alt="Albion Market Pulse logo">
 
-**100% Safe & Terms of Service Compliant**: It **never** reads game memory, injects code, hooks the client, or sends automated input. It solely queries the public AODP community REST API.
+# Albion Market Pulse
 
----
+**Market intelligence for Albion Online: profitable flips, crafting and Black Market deals,
+checked against real trade history, on your dashboard and right inside the game.**
 
-## 🌟 Key Features
+<p>
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
+  <img alt="Linux server" src="https://img.shields.io/badge/server-Linux%20%C2%B7%20systemd-FCC624?logo=linux&logoColor=black">
+  <img alt="Windows client" src="https://img.shields.io/badge/client-Windows%20.exe-0078D6?logo=windows&logoColor=white">
+  <img alt="Data: AODP" src="https://img.shields.io/badge/data-Albion%20Online%20Data%20Project-6E56CF">
+  <img alt="No game memory access" src="https://img.shields.io/badge/game%20process-never%20touched-2EA44F">
+</p>
 
-- 💻 **Native Desktop Companion App**: Launches in a standalone desktop window (Microsoft Edge WebView2 on Windows 10/11, WebKit on macOS) without browser tabs or address bar clutter. Launch with 1-click via `run_desktop.bat` (Windows), `run_desktop.sh` (macOS/Linux), or `python run_desktop.py`.
-- ⚖️ **Transport Weight & Mount Carry Calculator**:
-  - **Silver / kg Density**: Shows net profit per kilogram so you can pack maximum value into every transport run.
-  - **Mount Presets**: T3–T8 Transport Oxen (672kg – 4,923kg), T5 Armored Horse (800kg - Fast/Safe), T7 Pest Lizard (1,100kg), T8 Grizzly Bear (2,500kg - Tank), or Custom kg.
-  - **Full Trip Profit**: Automatically calculates how many units fit on your mount and total trip earnings.
-  - **CLI Support**: Rank trade routes by density: `python -m albion_flips.cli --sort density`.
-- 📋 **1-Click Copy In-Game Search Name**: Click the 📋 icon next to any item in Flips, Black Market, Refining, or Crafting to copy the clean name directly to your clipboard. Tab into Albion Online, hit `Ctrl+V` in the market search box, and trade immediately.
-- ⭐ **Watchlist / Pinned Items**: Click the ★ star button on any item to pin it to your personal Watchlist tab for fast daily tracking across all Royal Cities and the Black Market.
-- 🪙 **Station Usage Fee (Nutrition Tax)**: Enter the current city plot fee per 100 nutrition (e.g. 500 silver / 100 nutrition, or 0 on personal island) to view exact net crafting and refining margins.
-- 🏙️ **City-to-City Flips**: Detect profitable trade routes across Bridgewatch, Fort Sterling, Lymhurst, Martlock, Thetford, and Caerleon.
-- 🏴‍☠️ **Black Market Arbitrage**: Find high-demand items to buy in Royal cities and flip directly to Caerleon's Black Market buy orders.
-  - **Live Arrival Feed**: Badges items that were recently scanned (`⚡ JUST IN`, `🟢 RECENT SCAN`).
-  - **Filter by Freshness**: Quickly isolate fresh market orders (`<15m` old) before other players fill them.
-- ⚒️ **Crafting Profit Calculator**: Real-time margin calculations factoring in local city return rate bonuses (15.2% Royal / 24.8% Caerleon), focus crafting (43.5% / 47.9%), and station fees.
-- 🔮 **Enchanting & Mass Enchanting Arbitrage**:
-  - **Artifact Foundry Recipes**: Calculates exact material counts (192 for 2H Weapons, 144 for 1H Weapons, 96 for Armor & Bags, 48 for Helmets, Boots, Capes & Off-hands) across `.0 ➜ .1`, `.1 ➜ .2`, `.2 ➜ .3`, `.0 ➜ .2`, and `.0 ➜ .3` transitions.
-  - **Live Material Ticker**: Live-scanned rune, soul, and relic prices with 1-click manual price overrides and live sniffer detection.
-  - **Mass Batch Profit Simulator**: Configurable batch sizing (10x, 25x, 50x, 100x, or custom) calculating total material cost, mass profit, and ROI margin.
-  - **Dual Selling Modes**: Supports local city listing (with tax & setup fee) as well as direct Black Market buy order arbitrage.
-  - **1-Click Copy**: Dedicated copy buttons for both the gear item and the exact enchanting material.
-- ⚡ **Live Network Sniffer Integration**: Built-in status indicator and guide for pairing with the open-source `albiondata-client` for real-time 0-second market updates.
-- 🌐 **Interactive Web Dashboard**: Fast, responsive dark-mode dashboard running locally at `http://localhost:8765`.
-- ⚙️ **Configurable Tax & Fees**: Accurately factors in Premium tax (4%), non-premium tax (8%), and listing setup fees (2.5%).
+<a href="docs/images/dashboard.png"><img src="docs/images/dashboard.png" width="860" alt="Albion Market Pulse dashboard"></a>
 
+[Features](#features) · [How it works](#how-it-works) · [Getting started](#getting-started) ·
+[Is this allowed?](#is-this-allowed) · [Docs](#documentation) · [FAQ](#faq)
+
+</div>
 
 ---
 
-## 🐧 Linux Server Version (branch `linux-server`)
+Every day thousands of players feed market prices into the community
+[Albion Online Data Project](https://www.albion-online-data.com/). Albion Market Pulse turns that
+stream into decisions: **what to buy where, where to sell it, and how much you really keep** after
+tax, setup fee and a realistic share of the market.
 
-Run the analyzer 24/7 on a Linux server and open the dashboard from any device:
+Run it on your own PC, or on a small Linux server that keeps polling around the clock. Your
+dashboard is then up to date even while nobody is playing.
 
-- **Always-on polling** of AODP (rate-limited to stay below AODP's per-IP limits), even when nobody has the dashboard open.
-- **Windows live client** (`AlbionMarketPulseClient.exe`, attached to every GitHub release): paste your pairing link once; from then on it starts the official Albion Data Client (checksum-verified download) so your market visits go to AODP *and* to your server.
-- **Robust prices**: bait listings, contradictory order books and price spikes are checked against the 7-day average; daily profit uses a realistic market share instead of the whole daily volume.
-- **SQLite history**, login link with a 400-day cookie, optional public read-only mode, hardened systemd unit.
+## Features
 
-Setup, design reasons and security model: **[docs/LINUX_SERVER.md](docs/LINUX_SERVER.md)**.
+### Find the trade
 
----
+- **City flips and Black Market arbitrage** across all Royal cities, Caerleon and the Black Market,
+  with a freshness filter for orders that appeared minutes ago.
+- **Crafting, focus crafting and refining** with city return-rate bonuses and station fees.
+- **Enchanting** with exact rune, soul and relic counts for every item slot and a batch simulator.
+- **Transport planning**: silver per kg and full-trip profit for your mount, from T3 ox to grizzly.
+- **One-click copy** of the in-game search name, plus a personal watchlist.
 
-## 🏗️ Architecture: How Data Flows
+### Trust the numbers
 
+- **Bait-price detection**: a buy price far below the 7-day average or a contradictory order book
+  is replaced by a realistic price instead of producing a fake million-silver flip.
+- **Spike protection**: sell prices are capped at 110 % of the 7-day average, and at 150 % of the
+  other cities' median when a city has no history.
+- **Realistic daily profit**: based on a 10 % share of the real daily volume, not all of it.
+- **Verified first**: flips without any trade history are labelled and ranked after verified ones.
+
+### See it in game
+
+<img align="right" src="docs/images/overlay.png" width="300" alt="In-game overlay with item card and top flips">
+
+- **In-game overlay**: open an item at the market and a card appears over the game. It shows the
+  price against the 7-day average (cheap, fair or expensive) and the best city to sell instantly or
+  with an order, net after tax.
+- **Top flips at a glance**, refreshed after every server sweep.
+- Shows only while Albion is in front, never takes a click or focus away from the game.
+  Ctrl+Shift+O hides it, Ctrl+Shift+L moves it.
+- **Live prices in seconds**: your own market visits reach your dashboard immediately through the
+  official Albion Data Client.
+
+<br clear="right">
+
+### Run it your way
+
+| | Desktop | Linux server |
+| --- | --- | --- |
+| Where | your PC, native window or `localhost` | any Debian/Ubuntu box, behind HTTPS |
+| Prices | while the app is open | 24/7, rate-limited to AODP's fair-use limits |
+| History | AODP's window | own SQLite history (120 days) |
+| Access | only you | login link, optional read-only sharing |
+| Live client and overlay | local Data Client | `AlbionMarketPulseClient.exe` on any PC |
+
+## How it works
+
+```mermaid
+flowchart LR
+    G["Albion Online<br/>(you open a market)"] -- "network packets<br/>(read only)" --> DC["Albion Data Client<br/>official, on your PC"]
+    DC -- upload --> AODP[("AODP<br/>community database")]
+    DC -- "live upload<br/>(your key)" --> S["Market Pulse<br/>server"]
+    AODP -- "polled every few minutes" --> S
+    S --> D["Web dashboard"]
+    S -- "event stream" --> O["In-game overlay"]
 ```
-┌────────────────────────┐
-│     Albion Online      │ (Player opens Market / Black Market)
-└───────────┬────────────┘
-            │  UDP game packets
-            ▼
-┌────────────────────────┐
-│  Albion Data Client    │
-└─────┬────────────┬─────┘
-      │            │
-      │ (Public)   │ (Direct Local Ingest: < 2ms)
-      │            ▼
-      │     ┌────────────────────────┐
-      │     │ Albion Market Pulse    │ ⚡ 0-second Live Pipe
-      │     │ (Local Web Server)     │
-      ▼     └───────────┬────────────┘
-┌───────────┐           │
-│   AODP    │           │
-│ Community │           │
-│ Database  │           │
-└─────┬─────┘           │
-      │ (Background)    │
-      ▼                 │
-┌───────────────────────┴┐
-│  Local Web Dashboard   │ http://localhost:8765 (⚡ 0s Sniffer Badges)
-└────────────────────────┘
-```
 
----
+The server combines two sources. **AODP** provides prices from every player, so the dashboard keeps
+moving without you. **Your own Data Client** adds your market visits within seconds. Each sweep
+is stored in SQLite, so the bait and spike checks can compare every price with its 7-day average.
 
-## 🚀 Quickstart: How to Host Locally
+## Getting started
 
-### Prerequisites
-
-- **Python 3.11** or newer ([python.org](https://www.python.org/downloads/))
-- **Git** ([git-scm.com](https://git-scm.com/))
-
-### 1. Clone & Set Up Virtual Environment
+### Option 1: Linux server and Windows client (recommended)
 
 ```bash
-# Clone the repository
-git clone <YOUR_GITHUB_REPO_URL>
-cd albion-market-analyzer
+git clone -b linux-server https://github.com/MinosCodes/albion-market-pulse.git
+cd albion-market-pulse
+sudo ./deploy/linux/install.sh
+```
 
-# Create virtual environment
+The installer creates a hardened systemd service and a config with fresh keys. Put a reverse proxy
+with HTTPS in front ([Caddy example](deploy/linux/Caddyfile.example)), then print your links:
+
+```bash
+cd /opt/albion-pulse && sudo -u albion-pulse venv/bin/python -m albion_flips.server \
+  --config /etc/albion-pulse/config.json --show-links
+```
+
+On your gaming PC:
+
+1. Install [Npcap](https://npcap.com/#download) with *WinPcap API-compatible mode*.
+2. Download `AlbionMarketPulseClient.exe` from the
+   [releases](https://github.com/MinosCodes/albion-market-pulse/releases) and check it against its
+   `.sha256` (or build it: `pyinstaller client/windows/pulse_client.spec`).
+3. Paste the pairing link and click **Save and start**. Tick **Show the in-game overlay** if you
+   want the overlay, and run Albion in *windowed* or *borderless window* mode.
+
+### Option 2: Desktop only
+
+```bash
+git clone https://github.com/MinosCodes/albion-market-pulse.git
+cd albion-market-pulse
 python -m venv .venv
-
-# Activate virtual environment
-# Windows (Command Prompt):
-.venv\Scripts\activate.bat
-# Windows (PowerShell):
-.venv\Scripts\Activate.ps1
-# macOS / Linux:
-source .venv/bin/activate
-
-# Install dependencies
+.venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
+python run_desktop.py                            # or: python -m albion_flips.cli --watch --web
 ```
 
-### 2. Configure Settings
+On Windows, `Setup-Windows.bat` does all of this and creates a desktop shortcut.
+Details: [docs/DESKTOP.md](docs/DESKTOP.md).
 
-Copy the example configuration file:
+## Is this allowed?
 
-```bash
-# Windows:
-copy config.example.json config.json
+Albion Market Pulse follows the rule Sandbox Interactive's technical lead gave for the Albion Data
+Project:
 
-# macOS / Linux:
-cp config.example.json config.json
-```
+> "As long as you just look and analyze we are ok with it."
+> — MadDave, Technical Lead, Albion Online
 
-Open `config.json` and adjust:
-- `"server"`: Set to `"europe"` (Albion Europe), `"west"` (Albion Americas), or `"east"` (Albion Asia).
-- `"premium"`: Set to `true` if your character has active Premium (reduces tax to 4%).
+So the project:
 
-### 3. Run the Analyzer & Desktop Companion App
+- **never** reads or writes game memory, injects code or hooks the game client,
+- **never** sends input to the game: no bots, macros or automation,
+- captures market traffic only through the official, open-source
+  [Albion Data Client](https://github.com/ao-data/albiondata-client), like every AODP contributor,
+- draws the overlay as an ordinary always-on-top window, not inside the game.
 
-#### Option A: 1-Click Desktop App (Native Window)
-- **Windows**:
-  - Double-click **`run_desktop.bat`** (or `python run_desktop.py`).
-  - Launches in a standalone Microsoft Edge WebView2 desktop window without browser tabs!
-- **macOS / Linux**:
-  - Run **`./run_desktop.sh`** (or `python3 run_desktop.py`).
-  - Launches in a native WebKit desktop window.
+## Documentation
 
-#### Option B: Terminal Command (CLI or Web Dashboard)
-To launch continuous watch mode with the interactive web dashboard from your command line:
-
-```bash
-python -m albion_flips.cli --watch --web
-```
-
-Open your browser to:
-👉 **[http://localhost:8765](http://localhost:8765)**
-
-To launch directly as a desktop window via CLI:
-```bash
-python -m albion_flips.cli --desktop
-```
-
-To run a single terminal scan without the web server:
-```bash
-python -m albion_flips.cli --once
-
-# Rank by Silver / kg carry density (for mount transport runs):
-python -m albion_flips.cli --once --sort density
-
-# Rank by estimated daily silver turnover (profit × sales volume):
-python -m albion_flips.cli --once --sort daily
-
-# Skip dead items (volume < 1 or unrecorded history):
-python -m albion_flips.cli --once --skip-dead
-
-# Filter for liquid items only (≥ 10 sold per day) sorted by volume:
-python -m albion_flips.cli --once --min-volume 10 --sort volume
-```
-
-
----
-
-## 🪟 Windows Setup Guide: Albion Data Client (Step-by-Step)
-
-The **Albion Data Client** passively sniffs market response packets sent by the game server when you open the market in Albion Online and uploads them to the community database.
-
-Follow these simple steps on Windows:
-
-### 1. Install Npcap (Crucial Driver)
-The Data Client requires the **Npcap** packet capture driver:
-1. Download the installer from: 👉 **[https://npcap.com/#download](https://npcap.com/#download)**
-2. Run the installer (`npcap-x.xx.exe`).
-3. ⚠️ **VERY IMPORTANT STEP**: During installation, on the "Installation Options" screen, make sure you check:
-   - **`[X] Install Npcap in WinPcap API-compatible Mode`**
-4. Complete the installation.
-
-### 2. Auto-Install Albion Market Pulse
-In the project folder on Windows, simply double-click:
-👉 **`Setup-Windows.bat`**
-
-This automated script will:
-- Set up the Python virtual environment and dependencies.
-- Automatically download and extract `albiondata-client.exe` from GitHub if not already present.
-- Create an **`Albion Market Pulse`** shortcut on your Desktop with the custom Albion medallion icon.
-
-### 3. Running & Ingesting Prices (0-Second Latency)
-1. Double-click the **`Albion Market Pulse`** shortcut on your Desktop (or run `Start-Albion-Pulse.bat`).
-2. A Windows UAC prompt may appear asking to allow `albiondata-client.exe` — click **Yes** (Admin rights are required by Npcap to capture network adapter packets).
-3. The launcher automatically starts:
-   - **Albion Data Client** configured with dual-upload (`-i "https+pow://...,http://127.0.0.1:8765/api/ingest"`), feeding both the community and your local dashboard in `<2ms`.
-   - **Albion Market Pulse** web engine with 0-second live calculation.
-   - Pops open **`http://localhost:8765`** in your browser.
-4. Launch **Albion Online** and walk up to any Marketplace or the Caerleon Black Market.
-5. In the **Albion Data Client** console window, you will see real-time confirmations:
-   ```text
-   INFO Ingested 25 market orders -> Sent to Albion Online Data Project & Local Ingest
-   ```
-6. In your dashboard, the top **Sniffer: ACTIVE** pill turns pulsating neon green, and scanned items instantly appear with the **`⚡ 0s (SNIFFER)`** badge!
-
-### 🛠️ Windows Troubleshooting
-- **`Error: No interfaces found` or `cannot open adapter`**:
-  - Reinstall Npcap from [npcap.com](https://npcap.com/) and make sure the box **`Install Npcap in WinPcap API-compatible Mode`** is checked.
-- **Windows Firewall Alert**:
-  - If Windows Defender Firewall asks to allow network access for `albiondata-client.exe`, select **Allow Access** for Private Networks.
-- **Python not recognized in CMD**:
-  - Download Python from [python.org](https://www.python.org/downloads/) and re-run the installer, selecting **Modify** ➔ Check **`[X] Add python.exe to PATH`**.
-
----
-
-## 🖥️ Web Dashboard Guide
-
-| Tab | Description |
+| Topic | |
 | --- | --- |
-| **All Flips** | Master table showing highest profit-per-item and margin deals across all Royal cities. |
-| **Black Market** | Arbitrage routes targeting Caerleon's Black Market. Includes freshness filter pills (`⚡ Just Arrived (<15m)`) and live arrival feed. |
-| **Crafting** | Compares raw material buy prices with finished gear sell prices factoring in city return rates. |
-| **Focus Crafting** | Analyzes profit margins when using Focus points (high return rates 43.5%–47.9%). |
-| **Live Ticker** | Real-time prices of recent item scans across all monitored cities. |
+| Linux server: setup, design decisions, security model, overlay API | [docs/LINUX_SERVER.md](docs/LINUX_SERVER.md) |
+| Desktop mode, command line options, dashboard guide, `config.json` reference | [docs/DESKTOP.md](docs/DESKTOP.md) |
+| Original specification | [docs/SPEC.md](docs/SPEC.md) |
 
-### Deal Scoring & Tiers
+## FAQ
 
-- 🟢 **S-Tier (INSTANT PROFIT / HIGH VOL)**: High margin, rapid sales volume, recent scan.
-- 🟢 **A-Tier (GOOD DEAL)**: Solid profit with healthy daily transaction counts.
-- 🟡 **B-Tier (MODERATE)**: Decent profit, moderate volume or older scan data.
-- ⚠️ **C-Tier (SPECULATIVE)**: High profit margin but low daily volume; proceed with caution.
+<details>
+<summary><b>Why do some flips say "no history"?</b></summary>
 
----
+AODP has no trades for that item in that city during the last days, so the price cannot be
+checked against an average. These flips are ranked after verified ones and never appear in the
+overlay's top list.
+Treat them as leads, not as safe profit.
+</details>
 
-## ⚙️ Configuration Reference (`config.json`)
+<details>
+<summary><b>The overlay does not appear.</b></summary>
 
-```json
-{
-  "server": "europe",                   // "europe", "west", or "east"
-  "cities": [                           // Monitored markets
-    "Bridgewatch", "Fort Sterling", "Lymhurst", "Martlock", "Thetford", "Caerleon"
-  ],
-  "qualities": [1],                     // 1=Normal, 2=Good, 3=Outstanding, 4=Excellent, 5=Masterpiece
-  "premium": true,                      // true = 4% tax, false = 8% tax
-  "tax_rate_premium": 0.04,             // In-game premium sales tax
-  "tax_rate_standard": 0.08,            // In-game standard sales tax
-  "setup_fee_rate": 0.025,              // Order listing setup fee (2.5%)
-  "min_profit_silver": 500,             // Minimum profit threshold in silver
-  "min_margin_pct": 5,                  // Minimum percentage return on investment
-  "max_margin_pct": 300,                // Filters out erroneous or manipulated outlier prices
-  "min_daily_volume": 50,               // Minimum average volume to consider liquid
-  "volume_days": 3,                     // Historical days to average volume
-  "max_price_age_minutes": 120,         // Discard price quotes older than X minutes
-  "stack_size": 100,                    // Multiplier for calculating total batch profit
-  "refresh_seconds": 180,               // Auto-refresh interval (default 3m; daemon supports down to 20s)
-  "top_n": 25,                          // Number of items to display in CLI
-  "risk": {                             // Route risk ratings
-    "Bridgewatch": "low",
-    "Fort Sterling": "low",
-    "Lymhurst": "low",
-    "Martlock": "low",
-    "Thetford": "low",
-    "Brecilien": "medium",
-    "Caerleon": "high"
-  },
-  "notify_profit_silver": null,         // Profit threshold for notifications (null disables audio/popups)
-  "web": {
-    "enabled": false,
-    "port": 8765                        // Local port for the web dashboard
-  }
-}
-```
+Run Albion in *windowed* or *borderless window* mode. In exclusive fullscreen the game owns the
+screen and no ordinary window can be drawn over it. Also check that the game window is in front.
+Ctrl+Shift+O toggles the overlay.
+</details>
 
----
+<details>
+<summary><b>Do I have to keep my PC running?</b></summary>
 
-## 🧪 Testing
+No. The server polls AODP on its own. Your PC only adds your own market visits faster.
+</details>
 
-The project includes unit and integration tests covering profit math, tax calculations, AODP API throttles, and Black Market arbitrage:
+<details>
+<summary><b>Can friends use my server?</b></summary>
+
+Yes. Set `public_read` to share a read-only dashboard, or give them the pairing link so their market
+visits also reach your server. Without the key nobody can upload prices.
+</details>
+
+<details>
+<summary><b>Is my key safe in the .exe?</b></summary>
+
+The release contains no key, only an optional default server address. The key is entered once,
+sent only over HTTPS and stored in your user profile.
+</details>
+
+## Development
 
 ```bash
-pytest -q
+pip install -r requirements.txt
+pytest -q          # profit math, robust prices, server auth, live client, overlay feed
 ```
 
----
+```
+albion_flips/      analysis engine, web dashboard, server mode, overlay feed
+client/windows/    live client and in-game overlay (PyInstaller build)
+deploy/linux/      installer, systemd unit, Caddy example
+docs/              guides and design notes
+tests/             pytest suite with offline fixtures
+```
 
-## 🛡️ Terms of Service & Safety
+Releases are built by [`.github/workflows/windows-client.yml`](.github/workflows/windows-client.yml):
+tests, a Windows build and a SHA-256 file attached to every GitHub release.
 
-1. **No Memory Reading**: Does not touch the `Albion-Online` process or memory.
-2. **No Automation**: No bots, macros, or automated inputs are used.
-3. **Open Community Data**: Consumes the same public AODP data as community websites (Albion Online 2D, Albion Free Market).
+## Acknowledgements
+
+- [Albion Online Data Project](https://www.albion-online-data.com/) for the community price data
+- [ao-data/albiondata-client](https://github.com/ao-data/albiondata-client) for the official data client
+- [Npcap](https://npcap.com/) for packet capture on Windows
+
+Albion Market Pulse is a fan project and is not affiliated with or endorsed by Sandbox Interactive.
+Albion Online is a trademark of Sandbox Interactive GmbH.
