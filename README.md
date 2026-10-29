@@ -80,10 +80,10 @@ dashboard is then up to date even while nobody is playing.
 ## How it works
 
 ```mermaid
-flowchart LR
-    G["Albion Online<br/>(you open a market)"] -- "network packets<br/>(read only)" --> DC["Albion Data Client<br/>official, on your PC"]
-    DC -- upload --> AODP[("AODP<br/>community database")]
-    DC -- "live upload<br/>(your key)" --> S["Market Pulse<br/>server"]
+flowchart TB
+    G["Albion Online (you open a market)"] -- "network packets, read only" --> DC["Albion Data Client (official, on your PC)"]
+    DC -- upload --> AODP[("AODP community database")]
+    DC -- "live upload with your key" --> S["Market Pulse server"]
     AODP -- "polled every few minutes" --> S
     S --> D["Web dashboard"]
     S -- "event stream" --> O["In-game overlay"]
