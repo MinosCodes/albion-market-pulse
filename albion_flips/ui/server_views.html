@@ -57,6 +57,11 @@
     .sx-pill.buy { background: #1e3a8a; color: #93c5fd; } .sx-pill.sell { background: #14532d; color: #86efac; }
     .sx-pill.top { background: #064e3b; color: #6ee7b7; } .sx-pill.outbid { background: #7f1d1d; color: #fecaca; } .sx-pill.nodata { background: #1e293b; color: #94a3b8; }
     .sx-num-in { width: 84px; background: #0f131f; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 0.84rem; text-align: right; }
+    .sx-form-island { grid-template-columns: repeat(7, minmax(110px, 1fr)); }
+    @media (max-width: 1100px) { .sx-form-island { grid-template-columns: repeat(4, 1fr); } }
+    @media (max-width: 600px) { .sx-form-island { grid-template-columns: 1fr 1fr; } }
+    .sx-pill.warn { background: #713f12; color: #fde68a; }
+    .nav-tabs { overflow-x: auto; max-width: 100%; scrollbar-width: thin; } /* many tabs: scroll the bar, not the page */
     .sx-note { font-size: 0.82rem; color: var(--text-muted); margin-top: 8px; line-height: 1.5; }
   </style>
 
@@ -131,6 +136,35 @@
           <thead><tr><th>Type</th><th>Item</th><th>City</th><th class="num">Price</th><th class="num">Filled</th><th class="num">Silver after fees</th><th>Done</th><th></th></tr></thead>
           <tbody id="ox-closed"></tbody></table></div>
       </details>
+    </div>
+  </div>
+
+  <div id="view-island" style="display: none;">
+    <div class="sx-card">
+      <div class="sx-title"><h2>Your island</h2><span class="sx-muted" style="font-size:0.84rem;">Settings stay in this browser. Prices: the server's current market data, checked for bait and spikes.</span></div>
+      <div class="sx-form sx-form-island">
+        <div><label for="ix-home">Home city</label><select id="ix-home" class="sx-select"></select></div>
+        <div><label for="ix-mode">Sell with</label><select id="ix-mode" class="sx-select"><option value="instant">Instant sale</option><option value="order">Sell order</option></select></div>
+        <div><label for="ix-seeds" title="Seeds you plant per day. A farm plot has 9 spots.">Seeds / day</label><input id="ix-seeds" class="sx-input" type="number" min="0" max="500" step="1"></div>
+        <div><label for="ix-yield" title="Average crops one seed gives: 4.5, or 9 with premium">Crops / seed</label><input id="ix-yield" class="sx-input" type="number" min="0" max="50" step="0.5"></div>
+        <div><label for="ix-water">Water crops</label><select id="ix-water" class="sx-select"><option value="0">No</option><option value="1">Yes (focus)</option></select></div>
+        <div><label for="ix-animals" title="Animals on your pastures at the same time. A pasture has 9 spots.">Animals</label><input id="ix-animals" class="sx-input" type="number" min="0" max="500" step="1"></div>
+        <div><label for="ix-afocus">Feed with focus</label><select id="ix-afocus" class="sx-select"><option value="0">No</option><option value="1">Yes</option></select></div>
+      </div>
+      <details style="margin-top:10px;"><summary class="sx-muted" style="cursor:pointer;font-size:0.84rem;">Gathering speed (units per hour, depends on your gear and spec)</summary>
+        <div class="sx-row" style="margin-top:8px;" id="ix-rates"></div>
+      </details>
+    </div>
+    <div class="sx-kpis" id="ix-kpis"></div>
+    <div class="sx-card">
+      <div class="sx-row" style="margin-bottom:12px;">
+        <div class="sx-seg" id="ix-part">
+          <button data-p="crops" class="on">Crops &amp; herbs</button><button data-p="animals">Animals</button><button data-p="gathering">Gathering &amp; fishing</button>
+        </div>
+        <span class="sx-muted" style="font-size:0.84rem;" id="ix-sub"></span>
+      </div>
+      <div style="overflow-x:auto;" id="ix-main"><div class="sx-empty">Loading...</div></div>
+      <div class="sx-note" id="ix-note"></div>
     </div>
   </div>
 

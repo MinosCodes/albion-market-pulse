@@ -47,6 +47,9 @@ dashboard is then up to date even while nobody is playing.
   buy order rises above your price (server mode).
 - **Order tracker**: your buy and sell orders with fees, stock, average cost and profit, plus a
   warning in the dashboard and in game as soon as somebody outbids you (server mode).
+- **Island and gathering**: profit per day for every crop, herb and farm animal (seed return,
+  watering focus, offspring, cheapest food) and silver per hour for gathering and fishing, with the
+  zones near your home city (server mode).
 - **One-click copy** of the in-game search name, plus a personal watchlist.
 
 ### Trust the numbers

@@ -1,0 +1,2190 @@
+{
+ "source": "Albion Online game data (ao-bin-dumps), extracted 2026-10-28",
+ "names": {
+  "T1_FARM_CARROT_SEED": "Carrot Seeds",
+  "T1_CARROT": "Carrots",
+  "T2_FARM_BEAN_SEED": "Bean Seeds",
+  "T2_BEAN": "Beans",
+  "T3_FARM_WHEAT_SEED": "Wheat Seeds",
+  "T3_WHEAT": "Sheaf of Wheat",
+  "T4_FARM_TURNIP_SEED": "Turnip Seeds",
+  "T4_TURNIP": "Turnips",
+  "T5_FARM_CABBAGE_SEED": "Cabbage Seeds",
+  "T5_CABBAGE": "Cabbage",
+  "T6_FARM_POTATO_SEED": "Potato Seeds",
+  "T6_POTATO": "Potatoes",
+  "T7_FARM_CORN_SEED": "Corn Seeds",
+  "T7_CORN": "Bundle of Corn",
+  "T8_FARM_PUMPKIN_SEED": "Pumpkin Seeds",
+  "T8_PUMPKIN": "Pumpkin",
+  "T2_FARM_AGARIC_SEED": "Arcane Agaric Seeds",
+  "T2_AGARIC": "Arcane Agaric",
+  "T3_FARM_COMFREY_SEED": "Brightleaf Comfrey Seeds",
+  "T3_COMFREY": "Brightleaf Comfrey",
+  "T4_FARM_BURDOCK_SEED": "Crenellated Burdock Seeds",
+  "T4_BURDOCK": "Crenellated Burdock",
+  "T5_FARM_TEASEL_SEED": "Dragon Teasel Seeds",
+  "T5_TEASEL": "Dragon Teasel",
+  "T6_FARM_FOXGLOVE_SEED": "Elusive Foxglove Seeds",
+  "T6_FOXGLOVE": "Elusive Foxglove",
+  "T7_FARM_MULLEIN_SEED": "Firetouched Mullein Seeds",
+  "T7_MULLEIN": "Firetouched Mullein",
+  "T8_FARM_YARROW_SEED": "Ghoul Yarrow Seeds",
+  "T8_YARROW": "Ghoul Yarrow",
+  "T8_FARM_DRAKE_BABY": "Firewing Drake Egg",
+  "T8_FARM_DRAKE_GROWN": "Tame Firewing Drake",
+  "T3_FARM_OX_BABY": "Journeyman's Ox Calf",
+  "T3_FARM_OX_GROWN": "Journeyman's Ox",
+  "T4_FARM_OX_BABY": "Adept's Ox Calf",
+  "T4_FARM_OX_GROWN": "Adept's Ox",
+  "T5_FARM_OX_BABY": "Expert's Ox Calf",
+  "T5_FARM_OX_GROWN": "Expert's Ox",
+  "T6_FARM_OX_BABY": "Master's Ox Calf",
+  "T6_FARM_OX_GROWN": "Master's Ox",
+  "T7_FARM_OX_BABY": "Grandmaster's Ox Calf",
+  "T7_FARM_OX_GROWN": "Grandmaster's Ox",
+  "T8_FARM_OX_BABY": "Elder's Ox Calf",
+  "T8_FARM_OX_GROWN": "Elder's Ox",
+  "T3_FARM_HORSE_BABY": "Journeyman's Foal",
+  "T3_FARM_HORSE_GROWN": "Journeyman's Horse",
+  "T4_FARM_HORSE_BABY": "Adept's Foal",
+  "T4_FARM_HORSE_GROWN": "Adept's Horse",
+  "T5_FARM_HORSE_BABY": "Expert's Foal",
+  "T5_FARM_HORSE_GROWN": "Expert's Horse",
+  "T6_FARM_HORSE_BABY": "Master's Foal",
+  "T6_FARM_HORSE_GROWN": "Master's Horse",
+  "T7_FARM_HORSE_BABY": "Grandmaster's Foal",
+  "T7_FARM_HORSE_GROWN": "Grandmaster's Horse",
+  "T8_FARM_HORSE_BABY": "Elder's Foal",
+  "T8_FARM_HORSE_GROWN": "Elder's Horse",
+  "T6_FARM_DIREWOLF_BABY": "Direwolf Pup",
+  "T6_FARM_DIREWOLF_GROWN": "Tame Direwolf",
+  "T7_FARM_DIREBOAR_BABY": "Direboar Piglet",
+  "T7_FARM_DIREBOAR_GROWN": "Tame Direboar",
+  "T8_FARM_DIREBEAR_BABY": "Direbear Cub",
+  "T8_FARM_DIREBEAR_GROWN": "Tame Direbear",
+  "T7_FARM_SWAMPDRAGON_BABY": "Swamp Dragon Pup",
+  "T7_FARM_SWAMPDRAGON_GROWN": "Tame Swamp Dragon",
+  "T8_FARM_MAMMOTH_BABY": "Mammoth Calf",
+  "T8_FARM_MAMMOTH_GROWN": "Tame Mammoth",
+  "T5_FARM_COUGAR_BABY": "Swiftclaw Cub",
+  "T5_FARM_COUGAR_GROWN": "Tame Swiftclaw",
+  "T8_FARM_DIREWOLF_BABY": "Ghostwolf Pup",
+  "T8_FARM_DIREWOLF_GROWN": "Tame Ghostwolf",
+  "T4_FARM_GIANTSTAG_BABY": "Adept's Fawn",
+  "T4_FARM_GIANTSTAG_GROWN": "Adept's Tame Giant Stag",
+  "T6_FARM_GIANTSTAG_BABY": "Master's Fawn",
+  "T6_FARM_GIANTSTAG_GROWN": "Master's Tame Giant Stag",
+  "T6_FARM_GIANTSTAG_MOOSE_BABY": "Moose Calf",
+  "T6_FARM_GIANTSTAG_MOOSE_GROWN": "Tame Moose",
+  "T5_FARM_MOABIRD_FW_BRIDGEWATCH_BABY": "Baby Moabird",
+  "T5_FARM_MOABIRD_FW_BRIDGEWATCH_GROWN": "Tame Moabird",
+  "T5_FARM_DIREBEAR_FW_FORTSTERLING_BABY": "Winter Bear Cub",
+  "T5_FARM_DIREBEAR_FW_FORTSTERLING_GROWN": "Tame Winter Bear",
+  "T5_FARM_DIREBOAR_FW_LYMHURST_BABY": "Wild Boarlet",
+  "T5_FARM_DIREBOAR_FW_LYMHURST_GROWN": "Tame Wild Boar",
+  "T5_FARM_RAM_FW_MARTLOCK_BABY": "Bighorn Ram Lamb",
+  "T5_FARM_RAM_FW_MARTLOCK_GROWN": "Tame Bighorn Ram",
+  "T5_FARM_SWAMPDRAGON_FW_THETFORD_BABY": "Baby Swamp Salamander",
+  "T5_FARM_SWAMPDRAGON_FW_THETFORD_GROWN": "Tame Swamp Salamander",
+  "T5_FARM_GREYWOLF_FW_CAERLEON_BABY": "Caerleon Greywolf Pup",
+  "T5_FARM_GREYWOLF_FW_CAERLEON_GROWN": "Tame Greywolf",
+  "T5_FARM_OWL_FW_BRECILIEN_BABY": "Mystic Owlet",
+  "T5_FARM_OWL_FW_BRECILIEN_GROWN": "Tame Mystic Owl",
+  "T5_FARM_SPIDER_HELL_BABY": "Hellspinner Baby",
+  "T5_FARM_SPIDER_HELL_GROWN": "Tame Hellspinner",
+  "T8_FARM_MOABIRD_FW_BRIDGEWATCH_BABY": "Baby Elite Terrorbird",
+  "T8_FARM_MOABIRD_FW_BRIDGEWATCH_GROWN": "Tame Elite Terrorbird",
+  "T8_FARM_DIREBEAR_FW_FORTSTERLING_BABY": "Elite Winter Bear Cub",
+  "T8_FARM_DIREBEAR_FW_FORTSTERLING_GROWN": "Tame Elite Winter Bear",
+  "T8_FARM_DIREBOAR_FW_LYMHURST_BABY": "Elite Wild Boarlet",
+  "T8_FARM_DIREBOAR_FW_LYMHURST_GROWN": "Tame Elite Wild Boar",
+  "T8_FARM_RAM_FW_MARTLOCK_BABY": "Elite Bighorn Ram Lamb",
+  "T8_FARM_RAM_FW_MARTLOCK_GROWN": "Tame Elite Bighorn Ram",
+  "T8_FARM_SWAMPDRAGON_FW_THETFORD_BABY": "Baby Elite Swamp Salamander",
+  "T8_FARM_SWAMPDRAGON_FW_THETFORD_GROWN": "Tame Elite Swamp Salamander",
+  "T8_FARM_GREYWOLF_FW_CAERLEON_BABY": "Elite Greywolf Pup",
+  "T8_FARM_GREYWOLF_FW_CAERLEON_GROWN": "Tame Elite Greywolf",
+  "T8_FARM_OWL_FW_BRECILIEN_BABY": "Elite Mystic Owlet",
+  "T8_FARM_OWL_FW_BRECILIEN_GROWN": "Tame Elite Mystic Owl",
+  "T8_FARM_SPIDER_HELL_BABY": "Soulspinner Baby",
+  "T8_FARM_SPIDER_HELL_GROWN": "Tame Soulspinner",
+  "T3_FARM_CHICKEN_BABY": "Baby Chickens",
+  "T3_FARM_CHICKEN_GROWN": "Chicken",
+  "T4_FARM_GOAT_BABY": "Kid",
+  "T4_FARM_GOAT_GROWN": "Goat",
+  "T5_FARM_GOOSE_BABY": "Gosling",
+  "T5_FARM_GOOSE_GROWN": "Goose",
+  "T6_FARM_SHEEP_BABY": "Lamb",
+  "T6_FARM_SHEEP_GROWN": "Sheep",
+  "T7_FARM_PIG_BABY": "Piglet",
+  "T7_FARM_PIG_GROWN": "Pig",
+  "T8_FARM_COW_BABY": "Calf",
+  "T8_FARM_COW_GROWN": "Cow",
+  "T2_FISH_FRESHWATER_ALL_COMMON": "Striped Carp",
+  "T2_FISH_SALTWATER_ALL_COMMON": "Striped Mackerel",
+  "T3_FISH_FRESHWATER_ALL_COMMON": "Albion Perch",
+  "T3_FISH_SALTWATER_ALL_COMMON": "Flatshore Plaice",
+  "T4_FISH_FRESHWATER_ALL_COMMON": "Bluescale Pike",
+  "T4_FISH_SALTWATER_ALL_COMMON": "Bluescale Cod",
+  "T5_FISH_FRESHWATER_ALL_COMMON": "Spotted Trout",
+  "T5_FISH_SALTWATER_ALL_COMMON": "Spotted Wolffish",
+  "T6_FISH_FRESHWATER_ALL_COMMON": "Brightscale Zander",
+  "T6_FISH_SALTWATER_ALL_COMMON": "Strongfin Salmon",
+  "T7_FISH_FRESHWATER_ALL_COMMON": "Danglemouth Catfish",
+  "T7_FISH_SALTWATER_ALL_COMMON": "Bluefin Tuna",
+  "T8_FISH_FRESHWATER_ALL_COMMON": "River Sturgeon",
+  "T8_FISH_SALTWATER_ALL_COMMON": "Steelscale Swordfish",
+  "T2_WOOD": "Birch Logs",
+  "T2_ROCK": "Limestone",
+  "T2_ORE": "Copper Ore",
+  "T2_FIBER": "Cotton",
+  "T2_HIDE": "Rugged Hide",
+  "T3_WOOD": "Chestnut Logs",
+  "T3_ROCK": "Sandstone",
+  "T3_ORE": "Tin Ore",
+  "T3_FIBER": "Flax",
+  "T3_HIDE": "Thin Hide",
+  "T4_WOOD": "Pine Logs",
+  "T4_ROCK": "Travertine",
+  "T4_ORE": "Iron Ore",
+  "T4_FIBER": "Hemp",
+  "T4_HIDE": "Medium Hide",
+  "T5_WOOD": "Cedar Logs",
+  "T5_ROCK": "Granite",
+  "T5_ORE": "Titanium Ore",
+  "T5_FIBER": "Skyflower",
+  "T5_HIDE": "Heavy Hide",
+  "T6_WOOD": "Bloodoak Logs",
+  "T6_ROCK": "Slate",
+  "T6_ORE": "Runite Ore",
+  "T6_FIBER": "Amberleaf Cotton",
+  "T6_HIDE": "Robust Hide",
+  "T7_WOOD": "Ashenbark Logs",
+  "T7_ROCK": "Basalt",
+  "T7_ORE": "Meteorite Ore",
+  "T7_FIBER": "Sunflax",
+  "T7_HIDE": "Thick Hide",
+  "T8_WOOD": "Whitewood Logs",
+  "T8_ROCK": "Marble",
+  "T8_ORE": "Adamantium Ore",
+  "T8_FIBER": "Ghost Hemp",
+  "T8_HIDE": "Resilient Hide"
+ },
+ "plants": [
+  {
+   "seed": "T1_FARM_CARROT_SEED",
+   "crop": "T1_CARROT",
+   "kind": "crop",
+   "tier": 1,
+   "grow_s": 79200,
+   "seed_chance": 0,
+   "water_bonus": 2,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T2_FARM_BEAN_SEED",
+   "crop": "T2_BEAN",
+   "kind": "crop",
+   "tier": 2,
+   "grow_s": 79200,
+   "seed_chance": 0.3333,
+   "water_bonus": 1.3333,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T3_FARM_WHEAT_SEED",
+   "crop": "T3_WHEAT",
+   "kind": "crop",
+   "tier": 3,
+   "grow_s": 79200,
+   "seed_chance": 0.6,
+   "water_bonus": 0.8,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T4_FARM_TURNIP_SEED",
+   "crop": "T4_TURNIP",
+   "kind": "crop",
+   "tier": 4,
+   "grow_s": 79200,
+   "seed_chance": 0.7333,
+   "water_bonus": 0.5333,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T5_FARM_CABBAGE_SEED",
+   "crop": "T5_CABBAGE",
+   "kind": "crop",
+   "tier": 5,
+   "grow_s": 79200,
+   "seed_chance": 0.8,
+   "water_bonus": 0.4,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T6_FARM_POTATO_SEED",
+   "crop": "T6_POTATO",
+   "kind": "crop",
+   "tier": 6,
+   "grow_s": 79200,
+   "seed_chance": 0.8667,
+   "water_bonus": 0.2667,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T7_FARM_CORN_SEED",
+   "crop": "T7_CORN",
+   "kind": "crop",
+   "tier": 7,
+   "grow_s": 79200,
+   "seed_chance": 0.9111,
+   "water_bonus": 0.1778,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T8_FARM_PUMPKIN_SEED",
+   "crop": "T8_PUMPKIN",
+   "kind": "crop",
+   "tier": 8,
+   "grow_s": 79200,
+   "seed_chance": 0.9333,
+   "water_bonus": 0.1333,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T2_FARM_AGARIC_SEED",
+   "crop": "T2_AGARIC",
+   "kind": "herb",
+   "tier": 2,
+   "grow_s": 79200,
+   "seed_chance": 0.3333,
+   "water_bonus": 1.3333,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T3_FARM_COMFREY_SEED",
+   "crop": "T3_COMFREY",
+   "kind": "herb",
+   "tier": 3,
+   "grow_s": 79200,
+   "seed_chance": 0.6,
+   "water_bonus": 0.8,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T4_FARM_BURDOCK_SEED",
+   "crop": "T4_BURDOCK",
+   "kind": "herb",
+   "tier": 4,
+   "grow_s": 79200,
+   "seed_chance": 0.7333,
+   "water_bonus": 0.5333,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T5_FARM_TEASEL_SEED",
+   "crop": "T5_TEASEL",
+   "kind": "herb",
+   "tier": 5,
+   "grow_s": 79200,
+   "seed_chance": 0.8,
+   "water_bonus": 0.4,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T6_FARM_FOXGLOVE_SEED",
+   "crop": "T6_FOXGLOVE",
+   "kind": "herb",
+   "tier": 6,
+   "grow_s": 79200,
+   "seed_chance": 0.8667,
+   "water_bonus": 0.2667,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T7_FARM_MULLEIN_SEED",
+   "crop": "T7_MULLEIN",
+   "kind": "herb",
+   "tier": 7,
+   "grow_s": 79200,
+   "seed_chance": 0.9111,
+   "water_bonus": 0.1778,
+   "focus": 1000,
+   "nutrition": 48
+  },
+  {
+   "seed": "T8_FARM_YARROW_SEED",
+   "crop": "T8_YARROW",
+   "kind": "herb",
+   "tier": 8,
+   "grow_s": 79200,
+   "seed_chance": 0.9333,
+   "water_bonus": 0.1333,
+   "focus": 1000,
+   "nutrition": 48
+  }
+ ],
+ "animals": [
+  {
+   "baby": "T8_FARM_DRAKE_BABY",
+   "grown": "T8_FARM_DRAKE_GROWN",
+   "tier": 8,
+   "grow_s": 2404800,
+   "offspring": 0,
+   "focus_bonus": 0.004,
+   "focus": 1000,
+   "food": "mount",
+   "nutrition": 147696,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T3_FARM_OX_BABY",
+   "grown": "T3_FARM_OX_GROWN",
+   "tier": 3,
+   "grow_s": 158400,
+   "offspring": 0.84,
+   "focus_bonus": 0.2,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 480,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T4_FARM_OX_BABY",
+   "grown": "T4_FARM_OX_GROWN",
+   "tier": 4,
+   "grow_s": 331200,
+   "offspring": 0.7867,
+   "focus_bonus": 0.1333,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 768,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T5_FARM_OX_BABY",
+   "grown": "T5_FARM_OX_GROWN",
+   "tier": 5,
+   "grow_s": 504000,
+   "offspring": 0.7867,
+   "focus_bonus": 0.0889,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 1488,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T6_FARM_OX_BABY",
+   "grown": "T6_FARM_OX_GROWN",
+   "tier": 6,
+   "grow_s": 676800,
+   "offspring": 0.8104,
+   "focus_bonus": 0.0593,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 3312,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T7_FARM_OX_BABY",
+   "grown": "T7_FARM_OX_GROWN",
+   "tier": 7,
+   "grow_s": 849600,
+   "offspring": 0.842,
+   "focus_bonus": 0.0395,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 7920,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_OX_BABY",
+   "grown": "T8_FARM_OX_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0.8736,
+   "focus_bonus": 0.0263,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T3_FARM_HORSE_BABY",
+   "grown": "T3_FARM_HORSE_GROWN",
+   "tier": 3,
+   "grow_s": 158400,
+   "offspring": 0.84,
+   "focus_bonus": 0.2,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 480,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T4_FARM_HORSE_BABY",
+   "grown": "T4_FARM_HORSE_GROWN",
+   "tier": 4,
+   "grow_s": 331200,
+   "offspring": 0.7867,
+   "focus_bonus": 0.1333,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 768,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T5_FARM_HORSE_BABY",
+   "grown": "T5_FARM_HORSE_GROWN",
+   "tier": 5,
+   "grow_s": 504000,
+   "offspring": 0.7867,
+   "focus_bonus": 0.0889,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 1488,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T6_FARM_HORSE_BABY",
+   "grown": "T6_FARM_HORSE_GROWN",
+   "tier": 6,
+   "grow_s": 676800,
+   "offspring": 0.8104,
+   "focus_bonus": 0.0593,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 3312,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T7_FARM_HORSE_BABY",
+   "grown": "T7_FARM_HORSE_GROWN",
+   "tier": 7,
+   "grow_s": 849600,
+   "offspring": 0.842,
+   "focus_bonus": 0.0395,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 7920,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_HORSE_BABY",
+   "grown": "T8_FARM_HORSE_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0.8736,
+   "focus_bonus": 0.0263,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T6_FARM_DIREWOLF_BABY",
+   "grown": "T6_FARM_DIREWOLF_GROWN",
+   "tier": 6,
+   "grow_s": 676800,
+   "offspring": 0,
+   "focus_bonus": 0.06,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 3312,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T7_FARM_DIREBOAR_BABY",
+   "grown": "T7_FARM_DIREBOAR_GROWN",
+   "tier": 7,
+   "grow_s": 849600,
+   "offspring": 0,
+   "focus_bonus": 0.04,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 7920,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_DIREBEAR_BABY",
+   "grown": "T8_FARM_DIREBEAR_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0,
+   "focus_bonus": 0.025,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T7_FARM_SWAMPDRAGON_BABY",
+   "grown": "T7_FARM_SWAMPDRAGON_GROWN",
+   "tier": 7,
+   "grow_s": 849600,
+   "offspring": 0,
+   "focus_bonus": 0.04,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 7920,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_MAMMOTH_BABY",
+   "grown": "T8_FARM_MAMMOTH_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0,
+   "focus_bonus": 0.025,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T5_FARM_COUGAR_BABY",
+   "grown": "T5_FARM_COUGAR_GROWN",
+   "tier": 5,
+   "grow_s": 504000,
+   "offspring": 0,
+   "focus_bonus": 0.1,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 1488,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_DIREWOLF_BABY",
+   "grown": "T8_FARM_DIREWOLF_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0,
+   "focus_bonus": 0.025,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T4_FARM_GIANTSTAG_BABY",
+   "grown": "T4_FARM_GIANTSTAG_GROWN",
+   "tier": 4,
+   "grow_s": 331200,
+   "offspring": 0,
+   "focus_bonus": 0.175,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 768,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T6_FARM_GIANTSTAG_BABY",
+   "grown": "T6_FARM_GIANTSTAG_GROWN",
+   "tier": 6,
+   "grow_s": 676800,
+   "offspring": 0,
+   "focus_bonus": 0.06,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 3312,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T6_FARM_GIANTSTAG_MOOSE_BABY",
+   "grown": "T6_FARM_GIANTSTAG_MOOSE_GROWN",
+   "tier": 6,
+   "grow_s": 676800,
+   "offspring": 0,
+   "focus_bonus": 0.06,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 3312,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T5_FARM_MOABIRD_FW_BRIDGEWATCH_BABY",
+   "grown": "T5_FARM_MOABIRD_FW_BRIDGEWATCH_GROWN",
+   "tier": 5,
+   "grow_s": 504000,
+   "offspring": 0,
+   "focus_bonus": 0.1,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 1488,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T5_FARM_DIREBEAR_FW_FORTSTERLING_BABY",
+   "grown": "T5_FARM_DIREBEAR_FW_FORTSTERLING_GROWN",
+   "tier": 5,
+   "grow_s": 504000,
+   "offspring": 0,
+   "focus_bonus": 0.1,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 1488,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T5_FARM_DIREBOAR_FW_LYMHURST_BABY",
+   "grown": "T5_FARM_DIREBOAR_FW_LYMHURST_GROWN",
+   "tier": 5,
+   "grow_s": 504000,
+   "offspring": 0,
+   "focus_bonus": 0.1,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 1488,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T5_FARM_RAM_FW_MARTLOCK_BABY",
+   "grown": "T5_FARM_RAM_FW_MARTLOCK_GROWN",
+   "tier": 5,
+   "grow_s": 504000,
+   "offspring": 0,
+   "focus_bonus": 0.1,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 1488,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T5_FARM_SWAMPDRAGON_FW_THETFORD_BABY",
+   "grown": "T5_FARM_SWAMPDRAGON_FW_THETFORD_GROWN",
+   "tier": 5,
+   "grow_s": 504000,
+   "offspring": 0,
+   "focus_bonus": 0.1,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 1488,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T5_FARM_GREYWOLF_FW_CAERLEON_BABY",
+   "grown": "T5_FARM_GREYWOLF_FW_CAERLEON_GROWN",
+   "tier": 5,
+   "grow_s": 504000,
+   "offspring": 0,
+   "focus_bonus": 0.1,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 1488,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T5_FARM_OWL_FW_BRECILIEN_BABY",
+   "grown": "T5_FARM_OWL_FW_BRECILIEN_GROWN",
+   "tier": 5,
+   "grow_s": 504000,
+   "offspring": 0,
+   "focus_bonus": 0.1,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 1488,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T5_FARM_SPIDER_HELL_BABY",
+   "grown": "T5_FARM_SPIDER_HELL_GROWN",
+   "tier": 5,
+   "grow_s": 504000,
+   "offspring": 0,
+   "focus_bonus": 0.1,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 1488,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_MOABIRD_FW_BRIDGEWATCH_BABY",
+   "grown": "T8_FARM_MOABIRD_FW_BRIDGEWATCH_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0,
+   "focus_bonus": 0.025,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_DIREBEAR_FW_FORTSTERLING_BABY",
+   "grown": "T8_FARM_DIREBEAR_FW_FORTSTERLING_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0,
+   "focus_bonus": 0.025,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_DIREBOAR_FW_LYMHURST_BABY",
+   "grown": "T8_FARM_DIREBOAR_FW_LYMHURST_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0,
+   "focus_bonus": 0.025,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_RAM_FW_MARTLOCK_BABY",
+   "grown": "T8_FARM_RAM_FW_MARTLOCK_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0,
+   "focus_bonus": 0.025,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_SWAMPDRAGON_FW_THETFORD_BABY",
+   "grown": "T8_FARM_SWAMPDRAGON_FW_THETFORD_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0,
+   "focus_bonus": 0.025,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_GREYWOLF_FW_CAERLEON_BABY",
+   "grown": "T8_FARM_GREYWOLF_FW_CAERLEON_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0,
+   "focus_bonus": 0.025,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_OWL_FW_BRECILIEN_BABY",
+   "grown": "T8_FARM_OWL_FW_BRECILIEN_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0,
+   "focus_bonus": 0.025,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T8_FARM_SPIDER_HELL_BABY",
+   "grown": "T8_FARM_SPIDER_HELL_GROWN",
+   "tier": 8,
+   "grow_s": 1022400,
+   "offspring": 0,
+   "focus_bonus": 0.025,
+   "focus": 1000,
+   "food": "meat",
+   "nutrition": 19728,
+   "favorite": null,
+   "favorite_bonus": 0
+  },
+  {
+   "baby": "T3_FARM_CHICKEN_BABY",
+   "grown": "T3_FARM_CHICKEN_GROWN",
+   "tier": 3,
+   "grow_s": 158400,
+   "offspring": 0.6,
+   "focus_bonus": 0.8,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 864,
+   "favorite": "T3_WHEAT",
+   "favorite_bonus": 1
+  },
+  {
+   "baby": "T4_FARM_GOAT_BABY",
+   "grown": "T4_FARM_GOAT_GROWN",
+   "tier": 4,
+   "grow_s": 158400,
+   "offspring": 0.7333,
+   "focus_bonus": 0.5333,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 864,
+   "favorite": "T4_TURNIP",
+   "favorite_bonus": 1
+  },
+  {
+   "baby": "T5_FARM_GOOSE_BABY",
+   "grown": "T5_FARM_GOOSE_GROWN",
+   "tier": 5,
+   "grow_s": 158400,
+   "offspring": 0.8,
+   "focus_bonus": 0.4,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 864,
+   "favorite": "T5_CABBAGE",
+   "favorite_bonus": 1
+  },
+  {
+   "baby": "T6_FARM_SHEEP_BABY",
+   "grown": "T6_FARM_SHEEP_GROWN",
+   "tier": 6,
+   "grow_s": 158400,
+   "offspring": 0.8667,
+   "focus_bonus": 0.2667,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 864,
+   "favorite": "T6_POTATO",
+   "favorite_bonus": 1
+  },
+  {
+   "baby": "T7_FARM_PIG_BABY",
+   "grown": "T7_FARM_PIG_GROWN",
+   "tier": 7,
+   "grow_s": 158400,
+   "offspring": 0.9111,
+   "focus_bonus": 0.1778,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 864,
+   "favorite": "T7_CORN",
+   "favorite_bonus": 1
+  },
+  {
+   "baby": "T8_FARM_COW_BABY",
+   "grown": "T8_FARM_COW_GROWN",
+   "tier": 8,
+   "grow_s": 158400,
+   "offspring": 0.9333,
+   "focus_bonus": 0.1333,
+   "focus": 1000,
+   "food": "plants",
+   "nutrition": 864,
+   "favorite": "T8_PUMPKIN",
+   "favorite_bonus": 1
+  }
+ ],
+ "fish": [
+  "T2_FISH_FRESHWATER_ALL_COMMON",
+  "T2_FISH_SALTWATER_ALL_COMMON",
+  "T3_FISH_FRESHWATER_ALL_COMMON",
+  "T3_FISH_SALTWATER_ALL_COMMON",
+  "T4_FISH_FRESHWATER_ALL_COMMON",
+  "T4_FISH_SALTWATER_ALL_COMMON",
+  "T5_FISH_FRESHWATER_ALL_COMMON",
+  "T5_FISH_SALTWATER_ALL_COMMON",
+  "T6_FISH_FRESHWATER_ALL_COMMON",
+  "T6_FISH_SALTWATER_ALL_COMMON",
+  "T7_FISH_FRESHWATER_ALL_COMMON",
+  "T7_FISH_SALTWATER_ALL_COMMON",
+  "T8_FISH_FRESHWATER_ALL_COMMON",
+  "T8_FISH_SALTWATER_ALL_COMMON"
+ ],
+ "biome": {
+  "Thetford": [
+   "FIBER",
+   "HIDE",
+   "WOOD"
+  ],
+  "Fort Sterling": [
+   "ORE",
+   "ROCK",
+   "WOOD"
+  ],
+  "Lymhurst": [
+   "HIDE",
+   "ROCK",
+   "WOOD"
+  ],
+  "Bridgewatch": [
+   "FIBER",
+   "HIDE",
+   "ORE"
+  ],
+  "Martlock": [
+   "ORE",
+   "ROCK",
+   "WOOD"
+  ]
+ },
+ "refining_bonus": {
+  "METALBAR": "Thetford",
+  "PLANKS": "Fort Sterling",
+  "CLOTH": "Lymhurst",
+  "LEATHER": "Martlock",
+  "STONEBLOCK": "Bridgewatch"
+ },
+ "zones": [
+  {
+   "name": "Sleetwater Basin",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Chillhag",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Thetford",
+   "resources": {
+    "FIBER": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      13
+     ]
+    ],
+    "HIDE": [
+     [
+      2,
+      11
+     ],
+     [
+      3,
+      11
+     ]
+    ],
+    "WOOD": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      10
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Willowsigh Marsh",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Windripple Fen",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Stinkhag",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Thetford",
+   "resources": {
+    "FIBER": [
+     [
+      2,
+      11
+     ],
+     [
+      3,
+      10
+     ]
+    ],
+    "HIDE": [
+     [
+      2,
+      10
+     ],
+     [
+      3,
+      12
+     ]
+    ],
+    "WOOD": [
+     [
+      2,
+      10
+     ],
+     [
+      3,
+      10
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Dusklight Fen",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Nightcreak Marsh",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Dewleaf Fen",
+   "tier": 5,
+   "kind": "blue",
+   "region": "Thetford",
+   "resources": {
+    "FIBER": [
+     [
+      2,
+      87
+     ],
+     [
+      3,
+      93
+     ],
+     [
+      4,
+      61
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Wispwhisper Marsh",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Bonepool Marsh",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Curlew Fen",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Slimehag",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Thetford",
+   "resources": {
+    "FIBER": [
+     [
+      2,
+      11
+     ],
+     [
+      3,
+      10
+     ]
+    ],
+    "HIDE": [
+     [
+      2,
+      10
+     ],
+     [
+      3,
+      12
+     ]
+    ],
+    "WOOD": [
+     [
+      2,
+      10
+     ],
+     [
+      3,
+      10
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Murky Fen",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Fog Fen",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Drownhorse Basin",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Slithertail Marsh",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Wanderlure Basin",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Falsestep Marsh",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Thetford",
+   "resources": {}
+  },
+  {
+   "name": "Inis Mon",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Startgebiet",
+   "resources": {}
+  },
+  {
+   "name": "Forgotten Woods",
+   "tier": 1,
+   "kind": "blue",
+   "region": "Startgebiet",
+   "resources": {
+    "HIDE": [
+     [
+      2,
+      44
+     ]
+    ],
+    "WOOD": [
+     [
+      2,
+      74
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Mountain Fort",
+   "tier": 1,
+   "kind": "blue",
+   "region": "Startgebiet",
+   "resources": {
+    "FIBER": [
+     [
+      2,
+      50
+     ]
+    ],
+    "ORE": [
+     [
+      2,
+      75
+     ]
+    ]
+   }
+  },
+  {
+   "name": "The Cove",
+   "tier": 1,
+   "kind": "blue",
+   "region": "Startgebiet",
+   "resources": {}
+  },
+  {
+   "name": "Larchroad",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Lymhurst",
+   "resources": {
+    "HIDE": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      12
+     ]
+    ],
+    "ROCK": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      10
+     ]
+    ],
+    "WOOD": [
+     [
+      2,
+      10
+     ],
+     [
+      3,
+      9
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Russerdell",
+   "tier": 5,
+   "kind": "blue",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Rowanwood",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Oakcopse",
+   "tier": 5,
+   "kind": "blue",
+   "region": "Lymhurst",
+   "resources": {
+    "WOOD": [
+     [
+      2,
+      82
+     ],
+     [
+      3,
+      60
+     ],
+     [
+      4,
+      47
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Willow Wood",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Birchcopse",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Redlake",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Lymhurst",
+   "resources": {
+    "HIDE": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      12
+     ]
+    ],
+    "ROCK": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      10
+     ]
+    ],
+    "WOOD": [
+     [
+      2,
+      10
+     ],
+     [
+      3,
+      9
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Yew Wood",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Stagbourne",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Lymhurst",
+   "resources": {
+    "HIDE": [
+     [
+      2,
+      15
+     ],
+     [
+      3,
+      14
+     ]
+    ],
+    "ROCK": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      12
+     ]
+    ],
+    "WOOD": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      12
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Hornbeam Wood",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Ferndell",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Flynsdell",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Pinecopse",
+   "tier": 5,
+   "kind": "blue",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Deeproot Wood",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Aspenwood",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Spindlewood",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Cedarcopse",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Lymhurst",
+   "resources": {}
+  },
+  {
+   "name": "Cracked Earth",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Bridgewatch",
+   "resources": {
+    "FIBER": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      11
+     ]
+    ],
+    "HIDE": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      11
+     ]
+    ],
+    "ORE": [
+     [
+      2,
+      10
+     ],
+     [
+      3,
+      12
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Parchthroat Plain",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Drywater Meadow",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Slowtree Plain",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Lazygrass Plain",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Snapshaft Trough",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Smoothfloor Cleft",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Longmarch Meadow",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Steelhide Meadow",
+   "tier": 5,
+   "kind": "blue",
+   "region": "Bridgewatch",
+   "resources": {
+    "HIDE": [
+     [
+      2,
+      52
+     ],
+     [
+      3,
+      61
+     ],
+     [
+      4,
+      48
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Fractured Ground",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Bridgewatch",
+   "resources": {
+    "FIBER": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      12
+     ]
+    ],
+    "HIDE": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      11
+     ]
+    ],
+    "ORE": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      11
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Prospector's Hope",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Bridgewatch",
+   "resources": {
+    "FIBER": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      11
+     ]
+    ],
+    "HIDE": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      11
+     ]
+    ],
+    "ORE": [
+     [
+      2,
+      10
+     ],
+     [
+      3,
+      12
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Dryfield Meadow",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Sandgust Cleft",
+   "tier": 5,
+   "kind": "blue",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Longshadow Plain",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Flatriver Trough",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Redstone Plain",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Goldshimmer Plain",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Bridgewatch",
+   "resources": {}
+  },
+  {
+   "name": "Lewsdon Hill",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Eldon Hill",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Gutras Hill",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Haytor",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Blackthorn Quarry",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Brent Knoll",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Martlock",
+   "resources": {
+    "ORE": [
+     [
+      2,
+      13
+     ],
+     [
+      3,
+      11
+     ]
+    ],
+    "ROCK": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      12
+     ]
+    ],
+    "WOOD": [
+     [
+      2,
+      10
+     ],
+     [
+      3,
+      9
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Mase Knoll",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Martlock",
+   "resources": {
+    "ORE": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      13
+     ]
+    ],
+    "ROCK": [
+     [
+      2,
+      11
+     ],
+     [
+      3,
+      12
+     ]
+    ],
+    "WOOD": [
+     [
+      2,
+      9
+     ],
+     [
+      3,
+      9
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Saddle Tor",
+   "tier": 5,
+   "kind": "blue",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Croker Hill",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Vixen Tor",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Haldon Tor",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Goffers Knoll",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Martlock",
+   "resources": {
+    "ORE": [
+     [
+      2,
+      13
+     ],
+     [
+      3,
+      11
+     ]
+    ],
+    "ROCK": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      12
+     ]
+    ],
+    "WOOD": [
+     [
+      2,
+      10
+     ],
+     [
+      3,
+      9
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Kilmar Tor",
+   "tier": 5,
+   "kind": "blue",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Carns Hill",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Brons Hill",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Felniks Hill",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Adrens Hill",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Martlock",
+   "resources": {}
+  },
+  {
+   "name": "Bellever Tor",
+   "tier": 5,
+   "kind": "blue",
+   "region": "Martlock",
+   "resources": {
+    "ROCK": [
+     [
+      2,
+      51
+     ],
+     [
+      3,
+      76
+     ],
+     [
+      4,
+      62
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Pen Garn",
+   "tier": 5,
+   "kind": "blue",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Bryn Gorge",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Fort Sterling",
+   "resources": {
+    "FIBER": [
+     [
+      2,
+      13
+     ],
+     [
+      3,
+      11
+     ]
+    ],
+    "ORE": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      12
+     ]
+    ],
+    "ROCK": [
+     [
+      2,
+      13
+     ],
+     [
+      3,
+      11
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Crose Gorge",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Fort Sterling",
+   "resources": {
+    "FIBER": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      10
+     ]
+    ],
+    "ORE": [
+     [
+      2,
+      11
+     ],
+     [
+      3,
+      11
+     ]
+    ],
+    "ROCK": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      11
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Pen Kerrig",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Cairn Gorm",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Tharcal Fissure",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Pen Gent",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Mawar Gorge",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Cairn Darg",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Gwan Gorge",
+   "tier": 3,
+   "kind": "blue",
+   "region": "Fort Sterling",
+   "resources": {
+    "FIBER": [
+     [
+      2,
+      13
+     ],
+     [
+      3,
+      11
+     ]
+    ],
+    "ORE": [
+     [
+      2,
+      12
+     ],
+     [
+      3,
+      12
+     ]
+    ],
+    "ROCK": [
+     [
+      2,
+      13
+     ],
+     [
+      3,
+      11
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Cairn Glascore",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Cairn Camain",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Cairn Fidair",
+   "tier": 5,
+   "kind": "yellow",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Pen Fenair",
+   "tier": 5,
+   "kind": "blue",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Cairn Drain",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Caulder Fissure",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Cairn Cloch",
+   "tier": 6,
+   "kind": "yellow",
+   "region": "Fort Sterling",
+   "resources": {}
+  },
+  {
+   "name": "Pen Uchaf",
+   "tier": 4,
+   "kind": "blue",
+   "region": "Fort Sterling",
+   "resources": {
+    "ORE": [
+     [
+      2,
+      61
+     ],
+     [
+      3,
+      88
+     ],
+     [
+      4,
+      52
+     ]
+    ]
+   }
+  }
+ ]
+}

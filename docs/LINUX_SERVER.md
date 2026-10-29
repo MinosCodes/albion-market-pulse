@@ -225,7 +225,7 @@ the best instant sale and the best sell order after tax and setup fee (sell orde
 the 7-day average), and matching flips. Enable it in the client ("Show the in-game overlay") or start
 `AlbionMarketPulseClient.exe --overlay`.
 
-### Price history and price alerts (server only)
+### Price history, alerts, orders and island (server only)
 
 The server adds two dashboard tabs that need its SQLite history (`albion_flips/insights.py`, pages in
 `albion_flips/ui/`, injected into the desktop page by `inject_server_ui`, so desktop mode is unchanged):
@@ -251,8 +251,27 @@ The server adds two dashboard tabs that need its SQLite history (`albion_flips/i
   the average purchase cost and is valued at the best instant sale after tax. Stored in
   `<data_dir>/orders.json`, at most 500 entries.
 
+* **Island & Gathering** (`albion_flips/island.py`, game data in `data/island.json`): profit per day
+  for every crop and herb, every animal you can raise, and silver per hour for gathering and fishing,
+  all from current market prices (bait and spike checks included) and sold in your home city or the
+  best city.
+  * Crops: a seed gives *crops per seed* (4.5 on average, 9 with premium) once a day and comes back
+    with the chance from the game data. Watering adds the game's watering bonus to that chance (wheat
+    60 % → 140 %) and costs focus; the table shows the extra silver per 10,000 focus.
+  * Animals: grown animal after tax + value of a new baby (offspring chance, higher with focus)
+    − baby − food. Food is the cheapest crop or herb per nutrition point; the favourite food counts
+    double. Meat eaters are marked, their food is not priced yet.
+  * Gathering: units per hour are the player's own estimate per tier; the table adds the blue and
+    yellow zones of the home region that have nodes of that tier.
+  * Settings (home city, seeds per day, watering, animals, gathering speed) stay in the browser and
+    are sent as query parameters, so the server stores nothing. The seeds, crops, herbs, babies,
+    grown animals, T2 resources and common fish the tab needs are added to the polled items.
+  * `data/island.json` was extracted from the official game files (ao-bin-dumps). Not yet included:
+    mounts built from grown animals, animal products, enchanted resources.
+
 | Route | Access |
 | --- | --- |
+| `GET /api/island?home=&mode=instant\|order&seeds=&yield=&water=0\|1&animals=&afocus=0\|1&rates=&fish_rate=` | read access |
 | `GET /api/orders` | read access |
 | `POST /api/orders`, `/api/orders/update`, `/api/orders/delete` | login cookie |
 | `GET /api/items?q=` | read access |
@@ -278,6 +297,9 @@ artifact. The .exe is not code-signed, so Windows SmartScreen shows a warning on
   login/public read/write protection/ingest key over real HTTP, proxy handling, one full sweep.
 * `tests/test_liveclient.py`: URL/key/pairing-link validation, settings and defaults, connection
   check against a real running server, release checksum rules, refusing a tampered download.
+* `tests/test_insights.py`, `tests/test_orders.py`, `tests/test_island.py`: price history, alerts,
+  order tracker and the island calculator (seed return with and without watering, bait seed prices,
+  favourite food, offspring, gathering zones, the routes over real HTTP).
 
 Verified on 2026-10-29: 91 tests on Windows (Python 3.12) and Linux (Debian 13, Python 3.13);
 `install.sh` on Debian 13 (systemd exposure score 3.0 "OK"); a full sweep against live AODP

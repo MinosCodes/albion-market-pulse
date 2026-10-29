@@ -21,7 +21,7 @@
   };
 
   // ------------------------------------------------------------ tabs
-  const MINE = ['history', 'orders', 'alerts'];
+  const MINE = ['history', 'orders', 'island', 'alerts'];
   const original = window.switchTab;
   window.switchTab = function (tab) {
     const mine = MINE.includes(tab);
@@ -40,6 +40,7 @@
     }
     if (tab === 'alerts') { loadAlerts(); markSeen(); }
     if (tab === 'orders') loadOrders();
+    if (tab === 'island') loadIsland();
     if (tab === 'history' && !hx.item) setTimeout(() => $('hx-search').focus(), 0);
     store.set('tab', mine ? tab : null);
   };
@@ -512,8 +513,153 @@
     $('ox-filled').title = order ? 'How much of the order is already filled' : 'Instant trades are filled completely';
   }
 
+  // ------------------------------------------------------------ island and gathering
+  const IX_DEFAULTS = { home: 'Thetford', mode: 'instant', seeds: 18, yield: 9, water: '0', animals: 9, afocus: '0',
+    rates: [600, 450, 300, 180, 100, 60, 40], fish_rate: 90 };
+  const ix = { s: Object.assign({}, IX_DEFAULTS, { rates: IX_DEFAULTS.rates.slice() }, store.get('island', {})), part: store.get('islandPart', 'crops'), data: null, seq: 0 };
+  const TYPE_NAME = { WOOD: 'Wood', ROCK: 'Stone', ORE: 'Ore', FIBER: 'Fiber', HIDE: 'Hide', FISH: 'Fish' };
+  const pct = (x) => x == null ? '–' : Math.round(x * 100) + ' %';
+  const histLink = (id, label) => `<a href="#" data-hist="${esc(id)}" data-q="1" style="color:var(--text);text-decoration:none;">${esc(label)}</a>`;
+
+  function islandQuery() {
+    const s = ix.s;
+    const p = new URLSearchParams({ home: s.home, mode: s.mode, seeds: s.seeds, yield: s.yield, water: s.water,
+      animals: s.animals, afocus: s.afocus, rates: s.rates.join(','), fish_rate: s.fish_rate });
+    return '/api/island?' + p.toString();
+  }
+
+  async function loadIsland() {
+    const my = ++ix.seq;
+    try {
+      const r = await fetch(islandQuery(), { credentials: 'same-origin' });
+      if (!r.ok || my !== ix.seq) return;
+      ix.data = await r.json();
+      if (!$('ix-home').options.length) {
+        $('ix-home').innerHTML = ix.data.settings.markets.map((c) => `<option>${esc(c)}</option>`).join('');
+        $('ix-home').value = ix.data.settings.home;
+      }
+      renderIsland();
+    } catch (e) { $('ix-main').innerHTML = '<div class="sx-empty">Could not load the island data.</div>'; }
+  }
+
+  function fillIslandForm() {
+    const s = ix.s;
+    $('ix-mode').value = s.mode; $('ix-seeds').value = s.seeds; $('ix-yield').value = s.yield;
+    $('ix-water').value = s.water; $('ix-animals').value = s.animals; $('ix-afocus').value = s.afocus;
+    $('ix-rates').innerHTML = s.rates.map((v, i) => `<label class="sx-muted" style="font-size:0.8rem;">T${i + 2} <input class="sx-num-in" data-rate="${i}" type="number" min="0" step="10" value="${v}"></label>`).join('')
+      + `<label class="sx-muted" style="font-size:0.8rem;">Fish <input class="sx-num-in" id="ix-fish" type="number" min="0" step="5" value="${s.fish_rate}"></label>`;
+  }
+
+  function readIslandForm() {
+    const n = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) && v >= 0 ? v : d; };
+    const s = ix.s;
+    s.home = $('ix-home').value || s.home; s.mode = $('ix-mode').value;
+    s.seeds = n('ix-seeds', IX_DEFAULTS.seeds); s.yield = n('ix-yield', IX_DEFAULTS.yield);
+    s.water = $('ix-water').value; s.animals = n('ix-animals', IX_DEFAULTS.animals); s.afocus = $('ix-afocus').value;
+    document.querySelectorAll('#ix-rates [data-rate]').forEach((el) => { const v = parseFloat(el.value); if (isFinite(v) && v >= 0) s.rates[+el.dataset.rate] = v; });
+    s.fish_rate = n('ix-fish', IX_DEFAULTS.fish_rate);
+    store.set('island', s);
+  }
+
+  function warnPills(r) {
+    let h = '';
+    if (r.no_history) h += ' <span class="sx-pill nodata" title="No trades in the last 7 days: the price may not hold">no history</span>';
+    if (r.market_small) h += ' <span class="sx-pill warn" title="You would make more than a quarter of what this market trades per day">small market</span>';
+    if (r.feed_unknown) h += ' <span class="sx-pill nodata" title="Eats meat: food cost not included">meat food</span>';
+    return h;
+  }
+
+  function cityNote(r, home) {
+    return r.sell_city === home ? '' : ` <span class="sx-muted">${esc(r.sell_city)}</span>`;
+  }
+
+  function renderIsland() {
+    const d = ix.data; if (!d) return;
+    const s = d.settings, home = s.home;
+    ['crops', 'animals', 'gathering'].forEach((p) => {
+      const b = document.querySelector(`#ix-part [data-p="${p}"]`); if (b) b.className = p === ix.part ? 'on' : '';
+    });
+    const crops = d.crops.filter((r) => !r.missing).sort((a, b) => b.profit_day - a.profit_day);
+    const animals = d.animals.filter((r) => !r.missing).sort((a, b) => b.profit_day_per_spot - a.profit_day_per_spot);
+    const gath = d.gathering.slice().sort((a, b) => (b.per_hour_home || 0) - (a.per_hour_home || 0) || b.per_hour_best - a.per_hour_best);
+    const bestCrop = crops[0], bestAnimal = animals.find((a) => !a.feed_unknown) || animals[0];
+    const bestGather = gath.find((g) => g.per_hour_home) || gath[0];
+    $('ix-kpis').innerHTML = [
+      ['Best crop', bestCrop ? silver(bestCrop.profit_day) : '–', bestCrop ? `${bestCrop.name}, ${s.seeds} seeds a day` : 'no prices yet', bestCrop ? tone(bestCrop.profit_day) : ''],
+      ['Best animal', bestAnimal ? silver(bestAnimal.profit_day) : '–', bestAnimal ? `${bestAnimal.grown_name}, ${s.animals} spots, per day` : 'no prices yet', bestAnimal ? tone(bestAnimal.profit_day) : ''],
+      ['Best gathering', bestGather ? silver(bestGather.per_hour_home || bestGather.per_hour_best) : '–', bestGather ? `${bestGather.name} per hour` : 'no prices yet', ''],
+      ['Cheapest food', d.food[0] ? silver(d.food[0].price) : '–', d.food[0] ? `${d.food[0].name}, ${d.food[0].per_point} silver per nutrition` : 'no prices yet', ''],
+      ['Market tax', Math.round(d.tax_rate * 1000) / 10 + ' %', s.mode === 'order' ? `plus ${Math.round(d.setup_fee_rate * 1000) / 10} % setup fee` : 'instant sale, no setup fee', ''],
+      ['Home biome', (d.biome || []).map((t) => TYPE_NAME[t] || t).join(', ') || '–', `resources around ${home}`, ''],
+    ].map(([k, v, sub, cls]) => `<div class="sx-kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="s">${esc(sub)}</div></div>`).join('');
+
+    let h = '', note = '', sub = '';
+    if (ix.part === 'crops') {
+      sub = `${s.seeds} seeds a day, ${s.yield} crops each, ${s.water === '1' ? 'watered' : 'not watered'}`;
+      h = `<table class="sx-table"><thead><tr><th>Crop</th><th class="num">Seed</th><th class="num">Seed back</th><th class="num">Crop after tax</th><th class="num">Profit / seed</th><th class="num">Profit / day</th><th class="num" title="Extra silver per 10,000 focus when you water">Watering / 10k focus</th><th class="num">Traded / day</th></tr></thead><tbody>`
+        + (crops.map((r) => `<tr><td>${histLink(r.crop, r.name)} <span class="sx-muted">T${r.tier} ${r.kind === 'herb' ? 'herb' : ''}</span>${warnPills(r)}</td>`
+          + `<td class="num">${histLink(r.seed, silver(r.seed_price))}${r.seed_city !== home ? ` <span class="sx-muted">${esc(r.seed_city)}</span>` : ''}</td>`
+          + `<td class="num" title="Unwatered ${pct(r.seed_back_dry)}, watered ${pct(r.seed_back_wet)}">${pct(r.seed_back)}</td>`
+          + `<td class="num">${silver(r.crop_net)}${cityNote(r, home)}</td>`
+          + `<td class="num ${tone(r.profit_per_seed)}">${signed(r.profit_per_seed)}</td>`
+          + `<td class="num ${tone(r.profit_day)}"><b>${signed(r.profit_day)}</b></td>`
+          + `<td class="num ${tone(r.water_per_10k_focus)}">${r.water_per_10k_focus == null ? '–' : signed(r.water_per_10k_focus)}</td>`
+          + `<td class="num">${r.volume ? silver(r.volume) : '–'}</td></tr>`).join('')
+          || '<tr><td colspan="8" class="sx-empty">No crop prices yet. They arrive with the next market sweeps.</td></tr>')
+        + '</tbody></table>';
+      const missing = d.crops.filter((r) => r.missing).map((r) => r.name);
+      note = 'A harvest takes 22 hours, so a spot gives one harvest a day. Profit = crops × price after tax − seed price × (1 − seed back). '
+        + 'Watering adds the bonus from the game data to the seed chance, e.g. wheat 60 % → 140 %. Your own crops count at market price, because you could sell them.'
+        + (missing.length ? `<br>No price yet: ${esc(missing.join(', '))}.` : '');
+    } else if (ix.part === 'animals') {
+      sub = `${s.animals} animals, ${s.afocus === '1' ? 'fed with focus' : 'fed without focus'}`;
+      h = `<table class="sx-table"><thead><tr><th>Animal</th><th class="num">Baby</th><th class="num">Food</th><th class="num">Grows</th><th class="num">Grown after tax</th><th class="num">New baby</th><th class="num">Profit / animal</th><th class="num">Per spot / day</th><th class="num">All spots / day</th></tr></thead><tbody>`
+        + (animals.map((r) => `<tr><td>${histLink(r.grown, r.grown_name)} <span class="sx-muted">T${r.tier}</span>${warnPills(r)}</td>`
+          + `<td class="num">${histLink(r.baby, silver(r.baby_price))}${r.baby_city !== home ? ` <span class="sx-muted">${esc(r.baby_city)}</span>` : ''}</td>`
+          + `<td class="num">${r.food ? `${silver(r.food.cost)} <span class="sx-muted" title="${esc(r.food.units + ' × ' + r.food.name)}">${Math.ceil(r.food.units)}× ${esc(r.food.name)}${r.food.favorite ? ' ★' : ''}</span>` : '–'}</td>`
+          + `<td class="num">${r.grow_h >= 48 ? Math.round(r.grow_h / 24 * 10) / 10 + ' d' : r.grow_h + ' h'}</td>`
+          + `<td class="num">${silver(r.grown_net)}${cityNote(r, home)}</td>`
+          + `<td class="num" title="Chance for a new baby: ${pct(r.offspring)}">${silver(r.offspring_value)} <span class="sx-muted">${pct(r.offspring)}</span></td>`
+          + `<td class="num ${tone(r.profit)}">${signed(r.profit)}</td>`
+          + `<td class="num ${tone(r.profit_day_per_spot)}">${signed(r.profit_day_per_spot)}</td>`
+          + `<td class="num ${tone(r.profit_day)}"><b>${signed(r.profit_day)}</b></td></tr>`).join('')
+          || '<tr><td colspan="9" class="sx-empty">No animal prices yet. They arrive with the next market sweeps.</td></tr>')
+        + '</tbody></table>';
+      note = 'Profit = grown animal after tax + value of a new baby − baby price − food. A new baby is worth its purchase price, because you do not have to buy the next one. '
+        + 'Food is the cheapest crop or herb per nutrition point; ★ marks the animal\'s favourite food, which counts double. Mounts you could build from grown animals are not included yet.';
+    } else {
+      sub = `units per hour from your settings, sold in ${home} or the best city`;
+      h = `<table class="sx-table"><thead><tr><th>Resource</th><th class="num">Units / h</th><th class="num">After tax in ${esc(home)}</th><th class="num">Best city</th><th class="num">Silver / h here</th><th class="num">Silver / h best</th><th class="num">Traded / day</th><th>Where near ${esc(home)}</th></tr></thead><tbody>`
+        + (gath.map((r) => `<tr><td>${histLink(r.id, r.name)} <span class="sx-muted">T${r.tier} ${TYPE_NAME[r.type] || ''}</span>${r.no_history ? ' <span class="sx-pill nodata">no history</span>' : ''}</td>`
+          + `<td class="num">${silver(r.rate)}</td><td class="num">${silver(r.home_net)}</td>`
+          + `<td class="num">${silver(r.best_net)} <span class="sx-muted">${esc(r.best_city)}</span></td>`
+          + `<td class="num"><b>${silver(r.per_hour_home)}</b></td><td class="num">${silver(r.per_hour_best)}</td>`
+          + `<td class="num">${r.volume ? silver(r.volume) : '–'}</td>`
+          + `<td style="font-size:0.8rem;">${r.type === 'FISH' ? '<span class="sx-muted">any water of this tier</span>'
+            : r.zones.length ? r.zones.slice(0, 3).map((z) => `${esc(z.name)} <span class="sx-muted">T${z.tier} ${z.kind}${z.nodes ? ', ' + z.nodes + ' nodes' : ''}</span>`).join('<br>') + (r.zones.length > 3 ? ` <span class="sx-muted">+${r.zones.length - 3}</span>` : '')
+            : `<span class="sx-muted">${r.in_biome ? 'no zone data' : 'not in this biome'}</span>`}</td></tr>`).join('')
+          || '<tr><td colspan="8" class="sx-empty">No resource prices yet.</td></tr>')
+        + '</tbody></table>';
+      note = 'Gathering speed is your own estimate: set it under "Gathering speed". Zones are the blue and yellow zones of your home region with nodes of that tier, from the game\'s map data. Enchanted resources are not listed.';
+    }
+    $('ix-main').innerHTML = h;
+    $('ix-note').innerHTML = note;
+    $('ix-sub').textContent = sub;
+  }
+
   // ------------------------------------------------------------ wiring
   function init() {
+    fillIslandForm();
+    segment('ix-part', 'p', (v) => { ix.part = v; store.set('islandPart', v); renderIsland(); });
+    let it = null;
+    $('view-island').addEventListener('change', (e) => {
+      if (!e.target.closest('.sx-card')) return;
+      readIslandForm(); clearTimeout(it); it = setTimeout(loadIsland, 150);
+    });
+    $('view-island').addEventListener('click', (e) => {
+      const h = e.target.closest('a[data-hist]');
+      if (h) { e.preventDefault(); window.openPriceHistory(h.dataset.hist, 1); }
+    });
     searchBox('hx-search', 'hx-results', (it) => { hx.item = it; hx.data = null; loadHistory(); });
     searchBox('ax-search', 'ax-results', (it) => { ax.item = it; $('ax-hint').textContent = ''; $('ax-price').focus(); });
     $('hx-quality').addEventListener('change', (e) => { hx.quality = +e.target.value; loadHistory(); });

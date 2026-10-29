@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 from urllib.parse import parse_qs, urlsplit
 
+from albion_flips import island
 from albion_flips.analyzer import analyze_flips, parse_aodp_datetime
 from albion_flips.api import AodpClient
 from albion_flips.config import AppConfig, ConfigError, load_config, load_items
@@ -302,6 +303,9 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
                 snap["cities"] = list(insights.cities)
                 snap["can_edit"] = auth.session_ok(self.headers.get("Cookie"))
                 self._json(200, snap)
+                return True
+            if path == "/api/island":
+                self._json(200, insights.island_view(q))
                 return True
             if path == "/api/orders":
                 view = insights.orders_view()
@@ -578,6 +582,11 @@ class Insights:
         setup = cfg.setup_fee_rate if cfg else 0.025
         return self.orders.view(store_quotes(self.store), tax, setup)
 
+    def island_view(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        cfg = self.store.last_config
+        settings = island.parse_settings(query, self.cities, cfg.premium if cfg else True)
+        return island.island_payload(self.store, store_quotes(self.store), settings)
+
 
 def attach_overlay(store: FlipDataStore, poller: "Poller | None" = None, insights: Insights | None = None) -> OverlayHub:
     """Live item cards on every upload of the live client, a fresh top list after every sweep,
@@ -677,6 +686,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.show_links:
             return show_links(config)
         item_ids = load_items(args.items)
+        # the island tab needs seeds, crops, animals and raw resources even with a custom item list
+        have = set(item_ids)
+        item_ids += [i for i in island.island_items() if i not in have]
     except (FileNotFoundError, ConfigError) as e:
         logger.error("configuration error: %s", e)
         return 1
