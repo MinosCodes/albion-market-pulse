@@ -627,6 +627,9 @@
         + '</tbody></table>';
       note = 'Profit = grown animal after tax + value of a new baby − baby price − food. A new baby is worth its purchase price, because you do not have to buy the next one. '
         + 'Food is the cheapest crop or herb per nutrition point; ★ marks the animal\'s favourite food, which counts double. Mounts you could build from grown animals are not included yet.';
+      const noBaby = d.animals.filter((r) => r.missing === 'no baby price').length;
+      const noGrown = d.animals.filter((r) => r.missing && r.missing !== 'no baby price').length;
+      if (noBaby || noGrown) note += `<br>Not shown, because the market data has no price: ${noBaby} babies, ${noGrown} grown animals. Most grown animals are rarely sold, they are turned into mounts or meat.`;
     } else {
       sub = `units per hour from your settings, sold in ${home} or the best city`;
       h = `<table class="sx-table"><thead><tr><th>Resource</th><th class="num">Units / h</th><th class="num">After tax in ${esc(home)}</th><th class="num">Best city</th><th class="num">Silver / h here</th><th class="num">Silver / h best</th><th class="num">Traded / day</th><th>Where near ${esc(home)}</th></tr></thead><tbody>`
