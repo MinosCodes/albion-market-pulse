@@ -147,7 +147,7 @@ def test_enchanted_refining_uses_enchanted_previous_tier() -> None:
     cfg = AppConfig(cities=["Thetford", "Martlock"], qualities=[1])
     crafts = analyze_crafting(_ref_prices(True), cfg, focus=False, now=NOW)
     c = [x for x in crafts if x.item_id == "T5_METALBAR_LEVEL1@1"][0]
-    assert "T4_METALBAR_LEVEL1@1" in c.ingredients_desc
+    assert "T4_METALBAR_LEVEL1@1" in [i["id"] for i in c.ingredients]
     assert c.material_cost == pytest.approx(3 * 400 + 900)
 
 
