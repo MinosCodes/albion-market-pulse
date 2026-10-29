@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Albion Analyser logo: heraldic shield, castle towers rising like a market chart,
+       a pulse line turning into a rising arrow, and an enchantment sparkle. -->
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#fff3b0"/>
+      <stop offset="0.35" stop-color="#f5c542"/>
+      <stop offset="0.7" stop-color="#c98a12"/>
+      <stop offset="1" stop-color="#8a5a06"/>
+    </linearGradient>
+    <linearGradient id="goldTower" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#b87a0e"/>
+      <stop offset="0.45" stop-color="#ffd966"/>
+      <stop offset="1" stop-color="#c98a12"/>
+    </linearGradient>
+    <radialGradient id="field" cx="0.5" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#2b3f8f"/>
+      <stop offset="0.55" stop-color="#16205a"/>
+      <stop offset="1" stop-color="#0a0f2e"/>
+    </radialGradient>
+    <linearGradient id="pulse" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#4ade80"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+    <clipPath id="inner">
+      <path d="M256 54 L426 108 C428 226 412 314 372 372 C338 420 298 446 256 466 C214 446 174 420 140 372 C100 314 84 226 86 108 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Gold rim -->
+  <path filter="url(#shadow)" fill="url(#gold)"
+        d="M256 22 L456 86 C460 230 440 330 394 396 C354 452 306 480 256 500 C206 480 158 452 118 396 C72 330 52 230 56 86 Z"/>
+  <!-- Dark inner edge -->
+  <path fill="#5c3a04"
+        d="M256 44 L436 101 C439 226 421 318 380 378 C344 428 302 454 256 474 C210 454 168 428 132 378 C91 318 73 226 76 101 Z"/>
+  <!-- Field -->
+  <path fill="url(#field)"
+        d="M256 54 L426 108 C428 226 412 314 372 372 C338 420 298 446 256 466 C214 446 174 420 140 372 C100 314 84 226 86 108 Z"/>
+
+  <g clip-path="url(#inner)">
+    <!-- Subtle light sweep -->
+    <path d="M86 108 L256 54 L426 108 L426 150 C330 120 190 150 86 230 Z" fill="#ffffff" opacity="0.06"/>
+
+    <!-- Castle towers rising like a bar chart -->
+    <g fill="url(#goldTower)" stroke="#6b4304" stroke-width="3" stroke-linejoin="round">
+      <path d="M146 470 L146 316 L140 316 L140 296 L162 296 L162 308 L194 308 L194 296 L216 296 L216 316 L210 316 L210 470 Z"/>
+      <path d="M224 470 L224 254 L218 254 L218 234 L240 234 L240 246 L272 246 L272 234 L294 234 L294 254 L288 254 L288 470 Z"/>
+      <path d="M302 470 L302 194 L296 194 L296 174 L318 174 L318 186 L350 186 L350 174 L372 174 L372 194 L366 194 L366 470 Z"/>
+    </g>
+    <!-- Arched windows -->
+    <g fill="#16205a" opacity="0.85">
+      <path d="M170 372 L170 352 A8 8 0 0 1 186 352 L186 372 Z"/>
+      <path d="M248 316 L248 294 A8 8 0 0 1 264 294 L264 316 Z"/>
+      <path d="M326 258 L326 234 A8 8 0 0 1 342 234 L342 258 Z"/>
+    </g>
+  </g>
+
+  <!-- Pulse line becoming a rising arrow -->
+  <path fill="none" stroke="#0a0f2e" stroke-width="27" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"
+        d="M104 300 L150 300 L172 252 L196 330 L226 214 L252 278 L276 232 L304 232 L374 147"/>
+  <path fill="#0a0f2e" opacity="0.9" stroke="#0a0f2e" stroke-width="12" stroke-linejoin="round" d="M404 110 L395 160 L357 129 Z"/>
+  <g filter="url(#glow)">
+    <path fill="none" stroke="url(#pulse)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"
+          d="M104 300 L150 300 L172 252 L196 330 L226 214 L252 278 L276 232 L304 232 L374 147"/>
+    <path fill="#4ade80" stroke="#4ade80" stroke-width="4" stroke-linejoin="round" d="M404 110 L395 160 L357 129 Z"/>
+  </g>
+
+  <!-- Enchantment sparkle -->
+  <path fill="#ffffff" filter="url(#glow)"
+        d="M150 138 C153 158 158 163 178 166 C158 169 153 174 150 194 C147 174 142 169 122 166 C142 163 147 158 150 138 Z"/>
+</svg>

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Mapping, Sequence
+from typing import Any, Collection, Mapping, Sequence
 import logging
+import re
 
 from albion_flips.config import AppConfig
 from albion_flips.models import (
@@ -22,6 +23,16 @@ from albion_flips.profit import (
     calculate_profit_per_kg,
     calculate_sell_order_profit,
     calculate_total_profit,
+)
+from albion_flips.names import human_name, load_item_names
+from albion_flips.recipes import (
+    DEFAULT_BASE_BONUS,
+    FOCUS_BONUS,
+    RecipeBook,
+    city_return_rates,
+    craft_label,
+    load_recipe_book,
+    return_rate,
 )
 from albion_flips.weights import get_item_weight
 
@@ -433,6 +444,16 @@ def analyze_flips(
                 )
 
 
+    # An item can fill buy orders of every quality up to its own, which yields one
+    # candidate per order quality. Keep only the best exit per route.
+    best_per_route: dict[tuple[str, str, str, int], FlipOpportunity] = {}
+    for opp in opportunities:
+        key = (opp.item_id, opp.buy_city, opp.sell_city, opp.quality)
+        current = best_per_route.get(key)
+        if current is None or opp.profit_per_item > current.profit_per_item:
+            best_per_route[key] = opp
+    opportunities = list(best_per_route.values())
+
     # Sort opportunities descending by profit_per_item
     opportunities.sort(key=lambda x: x.profit_per_item, reverse=True)
     return opportunities
@@ -525,6 +546,114 @@ def calculate_deal_score(
         return final_score, "C", "⚠️ SPECULATIVE"
 
 
+def _fresh(price: int, date_str: str, now: datetime, max_age_minutes: float) -> bool:
+    """True when a quote has a price and is no older than max_age_minutes."""
+    if price <= 0:
+        return False
+    age = calculate_age_minutes(date_str, now)
+    return age is not None and age <= max_age_minutes
+
+
+def build_market_index(
+    prices: Sequence[PriceRecord],
+    config: AppConfig,
+    now: datetime,
+    max_age_minutes: float,
+    quality: int = 1,
+) -> tuple[dict[str, tuple[int, str]], dict[str, tuple[int, str, float, bool]]]:
+    """Indexes fresh quotes for one quality.
+
+    Returns:
+        buy_index:  item_id -> (cheapest instant-buy price, city)   [lowest sell order]
+        sell_index: item_id -> (gross price, city, net silver after tax/fees, is_instant)
+                    for the most lucrative exit: a sell order, a city buy order, or a
+                    Black Market buy order.
+    """
+    tax_rate = config.active_tax_rate
+    setup_rate = config.setup_fee_rate
+    buy_index: dict[str, tuple[int, str]] = {}
+    sell_index: dict[str, tuple[int, str, float, bool]] = {}
+
+    def offer_exit(item_id: str, gross: int, city: str, instant: bool) -> None:
+        net = gross * (1.0 - tax_rate - (0.0 if instant else setup_rate))
+        current = sell_index.get(item_id)
+        if current is None or net > current[2]:
+            sell_index[item_id] = (gross, city, net, instant)
+
+    for p in prices:
+        if p.quality != quality:
+            continue
+        if p.city != "Black Market" and _fresh(p.sell_price_min, p.sell_price_min_date, now, max_age_minutes):
+            cur = buy_index.get(p.item_id)
+            if cur is None or p.sell_price_min < cur[0]:
+                buy_index[p.item_id] = (p.sell_price_min, p.city)
+            offer_exit(p.item_id, p.sell_price_min, p.city, instant=False)
+        if _fresh(p.buy_price_max, p.buy_price_max_date, now, max_age_minutes):
+            offer_exit(p.item_id, p.buy_price_max, p.city, instant=True)
+
+    return buy_index, sell_index
+
+
+# Crafting ingredients that are not sold everywhere, so they are bought in the cheapest
+# city instead of the craft city: artifacts, royal sigils, Avalonian shards / Mists
+# tokens, faction hearts and faction crests.
+_BOUGHT_ANYWHERE = re.compile(r"(ARTEFACT_|QUESTITEM_TOKEN_|FACTION_\w+_TOKEN|CAPEITEM_\w+_BP)")
+
+
+def is_bought_anywhere(item_id: str) -> bool:
+    return bool(_BOUGHT_ANYWHERE.search(item_id))
+
+
+# Base chance of each crafted quality per roll (Normal, Good, Outstanding, Excellent,
+# Masterpiece). Specialization and focus add extra rolls; the best roll is kept.
+QUALITY_ODDS: tuple[float, ...] = (0.689, 0.25, 0.05, 0.01, 0.001)
+MAX_QUALITY_ROLLS = 4  # most rolls the dashboard lets the player pick
+
+
+def quality_chances(rolls: int = 1) -> list[float]:
+    """Chance of ending with each quality when the best of `rolls` rolls is kept."""
+    out, cumulative, previous = [], 0.0, 0.0
+    for odd in QUALITY_ODDS:
+        cumulative = min(1.0, cumulative + odd)
+        best = cumulative ** max(1, rolls)
+        out.append(best - previous)
+        previous = best
+    return out
+
+
+def quality_exit_index(
+    prices: Sequence[PriceRecord], config: AppConfig, now: datetime, max_age_minutes: float
+) -> dict[str, list[tuple[float, str] | None]]:
+    """item_id -> best (net silver, description) for an item of quality 1..5.
+
+    A buy order (city or Black Market) accepts its own quality or better; a sell order
+    is listed against items of the same quality. A better item can always take a
+    lower-quality exit, so the values never go down with quality.
+    """
+    tax, setup = config.active_tax_rate, config.setup_fee_rate
+    raw: dict[str, list[tuple[float, str] | None]] = {}
+
+    def offer(item_id: str, quality: int, net: float, desc: str) -> None:
+        slots = raw.setdefault(item_id, [None] * 5)
+        q = max(1, min(5, quality)) - 1
+        if slots[q] is None or net > slots[q][0]:
+            slots[q] = (net, desc)
+
+    for p in prices:
+        if _fresh(p.buy_price_max, p.buy_price_max_date, now, max_age_minutes):
+            offer(p.item_id, p.quality, p.buy_price_max * (1.0 - tax), f"{p.city} buy order {p.buy_price_max:,}")
+        if p.city != "Black Market" and _fresh(p.sell_price_min, p.sell_price_min_date, now, max_age_minutes):
+            offer(p.item_id, p.quality, p.sell_price_min * (1.0 - tax - setup), f"{p.city} sell order {p.sell_price_min:,}")
+
+    for item_id, slots in raw.items():
+        best: tuple[float, str] | None = None
+        for q in range(5):
+            if slots[q] is not None and (best is None or slots[q][0] > best[0]):
+                best = slots[q]
+            slots[q] = best
+    return raw
+
+
 def analyze_crafting(
     prices: Sequence[PriceRecord],
     config: AppConfig,
@@ -533,411 +662,221 @@ def analyze_crafting(
     now: datetime | None = None,
     fulfilled_orders: dict[tuple[str, str, int], datetime] | None = None,
     price_overrides: dict[tuple[str, str, int], int] | None = None,
+    recipe_book: RecipeBook | None = None,
+    history: Sequence[HistoryRecord] | Mapping[tuple[str, str, int], HistoryRecord] | None = None,
+    material_quotes: Collection[tuple[str, str]] | None = None,
 ) -> list[CraftingOpportunity]:
-    """Calculates crafting and refining profit across royal cities, Caerleon, and Black Market.
+    """Calculates crafting and refining profit for every recipe in the game data.
 
-    Identifies profitable refining (Planks, Metal Bars, Cloth, Leather, Stone Blocks)
-    and equipment crafting (Bags, Capes, Faction Capes, Weapons, Armors, Royal Gear).
+    Rules:
+    - Recipes, item values and city bonuses come from data/recipes.json (ao-bin-dumps).
+    - Only quality-1 (Normal) quotes are used: crafts come out mostly Normal, and
+      using Masterpiece prices would inflate profits.
+    - Quotes older than config.craft_max_price_age_minutes are ignored.
+    - Ingredients are bought at the cheapest fresh sell order in any royal city.
+    - The output is sold through the best exit: sell order (tax + setup fee) or an
+      instant sale into a city / Black Market buy order (tax only).
+    - Materials are bought in the craft city. Artifacts, royal sigils and similar
+      special items (see is_bought_anywhere) are bought in the cheapest city.
+    - Every crafting city is tried with its own material prices and return rate (which
+      depends on the recipe category and the city); the most profitable one is kept.
+    - Returnable ingredients cost (1 - return rate), non-returnable ones cost full price.
+    - material_quotes, when given, limits material prices to these (item_id, city) pairs
+      (used for "sniffer scans only").
     """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    book = recipe_book or load_recipe_book()
+    names = item_names if item_names is not None else load_item_names()
+
     clean_prices = deduplicate_prices(
         prices=prices,
         now=now,
         fulfilled_orders=fulfilled_orders,
         price_overrides=price_overrides,
     )
-    tax_rate = config.tax_rate_premium if config.premium else config.tax_rate_standard
-    setup_fee_rate = config.setup_fee_rate
+    buy_index, sell_index = build_market_index(
+        clean_prices, config, now, max_age_minutes=config.craft_max_price_age_minutes
+    )
+    quality_exits = quality_exit_index(clean_prices, config, now, config.craft_max_price_age_minutes)
+    chances = quality_chances(1)
+    tax_rate = config.active_tax_rate
+    history_map: Mapping[tuple[str, str, int], HistoryRecord] = {}
+    if history:
+        history_map = history if isinstance(history, Mapping) else {(h.item_id, h.location, h.quality): h for h in history}
+    no_city_bonus = DEFAULT_BASE_BONUS + (FOCUS_BONUS if focus else 0.0)
+    allowed = set(material_quotes) if material_quotes is not None else None
 
-    cheapest_sell: dict[str, tuple[int, str]] = {}
-    highest_sell: dict[str, tuple[int, str]] = {}
-    city_prices: dict[tuple[str, str], int] = {}
-
+    # item_id -> {city: cheapest fresh sell order}. Ingredients of any quality work in a
+    # recipe (e.g. a Good base cape for a faction cape), so every quality counts.
+    city_prices: dict[str, dict[str, int]] = {}
     for p in clean_prices:
-        if p.sell_price_min > 0:
-            curr = (p.sell_price_min, p.city)
-            if p.item_id not in cheapest_sell or p.sell_price_min < cheapest_sell[p.item_id][0]:
-                cheapest_sell[p.item_id] = curr
-            if p.item_id not in highest_sell or p.sell_price_min > highest_sell[p.item_id][0]:
-                highest_sell[p.item_id] = curr
-            city_prices[(p.item_id, p.city)] = p.sell_price_min
+        if p.city == "Black Market":
+            continue
+        if allowed is not None and (p.item_id, p.city) not in allowed:
+            continue
+        if _fresh(p.sell_price_min, p.sell_price_min_date, now, config.craft_max_price_age_minutes):
+            by_city = city_prices.setdefault(p.item_id, {})
+            if p.city not in by_city or p.sell_price_min < by_city[p.city]:
+                by_city[p.city] = p.sell_price_min
 
-        # If item has a Black Market buy order, crafters can sell directly to Black Market!
-        if p.city == "Black Market" and p.buy_price_max > 0:
-            curr_bm = (p.buy_price_max, p.city)
-            if p.item_id not in highest_sell or p.buy_price_max > highest_sell[p.item_id][0]:
-                highest_sell[p.item_id] = curr_bm
+    def cheapest(item_id: str) -> tuple[int, str] | None:
+        by_city = city_prices.get(item_id)
+        if not by_city:
+            return None
+        city = min(by_city, key=by_city.__getitem__)
+        return by_city[city], city
 
     opportunities: list[CraftingOpportunity] = []
+    for recipe in book.recipes:
+        exit_quote = sell_index.get(recipe.output)
+        q_exits = quality_exits.get(recipe.output)
+        if exit_quote is None and not q_exits:
+            continue
+        if exit_quote is None:
+            # Nobody buys a Normal one: only better rolls sell (see quality_nets).
+            exit_quote = (0, "", 0.0, True)
+        q_nets = [e[0] if e else 0.0 for e in q_exits] if q_exits else [0.0] * 5
+        expected_revenue = sum(ch * n for ch, n in zip(chances, q_nets))
+        if focus and recipe.focus <= 0:
+            continue  # focus changes nothing for this recipe
 
-    # 1. Refining Recipes
-    refining_defs = [
-        ("PLANKS", "WOOD", "Fort Sterling", "Wood Refining"),
-        ("METALBAR", "ORE", "Thetford", "Ore Refining"),
-        ("CLOTH", "FIBER", "Lymhurst", "Fiber Refining"),
-        ("LEATHER", "HIDE", "Martlock", "Hide Refining"),
-        ("STONEBLOCK", "ROCK", "Bridgewatch", "Stone Refining"),
-    ]
-    raw_qty_map = {3: 2, 4: 2, 5: 3, 6: 4, 7: 5, 8: 5}
+        # Special items (artifacts, sigils...) come from the cheapest city.
+        special: dict[str, tuple[int, str]] = {}
+        for res_id, _, _ in recipe.resources:
+            if is_bought_anywhere(res_id):
+                quote = cheapest(res_id)
+                if quote is not None:
+                    special[res_id] = quote
+        if any(is_bought_anywhere(r) and r not in special for r, _, _ in recipe.resources):
+            continue
 
-    for out_base, raw_base, bonus_city, craft_label in refining_defs:
-        for tier in (3, 4, 5, 6, 7, 8):
-            for enchant in (0, 1, 2, 3):
-                if tier == 3 and enchant > 0:
-                    continue
-                if enchant == 0:
-                    out_id = f"T{tier}_{out_base}"
-                    raw_id = f"T{tier}_{raw_base}"
+        candidates: list[tuple[float, str, float, list[tuple[str, int, bool, int, str]]]] = []
+        for city, base in book.base_bonus.items():
+            picks: list[tuple[str, int, bool, int, str]] = []
+            for res_id, count, returnable in recipe.resources:
+                if res_id in special:
+                    price, src = special[res_id]
                 else:
-                    out_id = f"T{tier}_{out_base}_LEVEL{enchant}@{enchant}"
-                    raw_id = f"T{tier}_{raw_base}_LEVEL{enchant}@{enchant}"
+                    price = city_prices.get(res_id, {}).get(city)
+                    src = city
+                    if price is None:
+                        break
+                picks.append((res_id, count, returnable, price, src))
+            else:
+                bonus = base + book.city_modifiers.get(city, {}).get(recipe.category, 0.0)
+                if focus:
+                    bonus += FOCUS_BONUS
+                rrr = return_rate(bonus)
+                cost = sum(c * pr * (1.0 - rrr if ret else 1.0) for _, c, ret, pr, _ in picks)
+                candidates.append((cost, city, bonus, picks))
+        if not candidates:
+            continue  # no city sells all the local materials
+        candidates.sort(key=lambda cand: cand[0])
+        _, craft_city, bonus, picks = candidates[0]
+        sell_price, sell_city, _, instant = exit_quote
+        setup_rate = 0.0 if instant else config.setup_fee_rate
 
-                prev_tier = tier - 1
-                prev_id = f"T{prev_tier}_{out_base}"
+        def city_numbers(cand_bonus: float, cand_picks: list[tuple[str, int, bool, int, str]]) -> tuple[float, float, float, float, float]:
+            """(effective cost, profit, margin %, return rate, returned silver) per item."""
+            mat = sum(c * pr for _, c, _, pr, _ in cand_picks)
+            ret_cost = sum(c * pr for _, c, ret, pr, _ in cand_picks if ret)
+            cand_rrr = return_rate(cand_bonus) if ret_cost > 0 else 0.0
+            eff = (mat - ret_cost * cand_rrr + recipe.silver) / recipe.amount
+            prof = calculate_crafting_profit(sell_price=sell_price, effective_material_cost=eff,
+                                             tax_rate=tax_rate, setup_fee_rate=setup_rate)
+            return eff, prof, calculate_margin(prof, int(round(eff))), cand_rrr, ret_cost * cand_rrr / recipe.amount
 
-                raw_info = city_prices.get((raw_id, bonus_city))
-                if not raw_info and raw_id in cheapest_sell:
-                    raw_info, _ = cheapest_sell[raw_id]
+        city_options: list[dict] = []
+        for _, cand_city, cand_bonus, cand_picks in candidates[1:]:
+            eff, prof, marg, cand_rrr, returned = city_numbers(cand_bonus, cand_picks)
+            if marg <= config.max_margin_pct:
+                city_options.append({
+                    "city": cand_city,
+                    "effective_cost": float(eff),
+                    "profit_per_item": float(prof),
+                    "margin_pct": float(marg),
+                    "resource_return_rate": round(cand_rrr, 4),
+                    "returned_value": float(returned),
+                    "city_bonus": cand_bonus > no_city_bonus + 1e-9,
+                    "prices": [pr for _, _, _, pr, _ in cand_picks],
+                    "cities": [src for _, _, _, _, src in cand_picks],
+                })
 
-                if not raw_info or raw_info <= 0:
-                    continue
+        material_cost = 0.0
+        returnable_cost = 0.0
+        desc_parts: list[str] = []
+        ingredients: list[dict] = []
+        for res_id, count, returnable, price, src in picks:
+            cost = count * price
+            material_cost += cost
+            if returnable:
+                returnable_cost += cost
+            res_name = human_name(res_id, names)
+            desc_parts.append(f"{count}x {res_name}")
+            ingredients.append({
+                "id": res_id,
+                "name": res_name,
+                "count": count,
+                "unit_price": price,
+                "city": src,
+                "returnable": bool(returnable),
+                "bought_elsewhere": res_id in special,
+            })
 
-                prev_info = city_prices.get((prev_id, bonus_city))
-                if not prev_info and prev_id in cheapest_sell:
-                    prev_info, _ = cheapest_sell[prev_id]
-                if not prev_info or prev_info <= 0:
-                    prev_info = 100 * (prev_tier - 2)
+        rrr = return_rate(bonus) if returnable_cost > 0 else 0.0
+        effective_cost = (material_cost - returnable_cost * rrr + recipe.silver) / recipe.amount
+        city_rates = city_return_rates(book, recipe.category, focus) if returnable_cost > 0 else {}
 
-                raw_qty = raw_qty_map[tier]
-                mat_cost = (raw_qty * raw_info) + prev_info
+        profit = calculate_crafting_profit(
+            sell_price=sell_price,
+            effective_material_cost=effective_cost,
+            tax_rate=tax_rate,
+            setup_fee_rate=setup_rate,
+        )
+        margin = calculate_margin(profit, int(round(effective_cost)))
+        if margin > config.max_margin_pct:
+            continue  # almost always a stale or troll listing
 
-                rrr = 0.539 if focus else 0.367
-                effective_cost = mat_cost * (1.0 - rrr)
+        out = recipe.output
+        tier = int(out[1]) if out[:1] == "T" and out[1:2].isdigit() else None
+        enchant = int(out.split("@")[1]) if "@" in out else 0
+        amount_note = f" (makes {recipe.amount})" if recipe.amount > 1 else ""
 
-                if out_id not in highest_sell:
-                    continue
-                sell_price, sell_city = highest_sell[out_id]
-                if sell_price <= 0:
-                    continue
-
-                fee = 0.0 if sell_city == "Black Market" else setup_fee_rate
-                profit = calculate_crafting_profit(
-                    sell_price=sell_price,
-                    effective_material_cost=effective_cost,
-                    tax_rate=tax_rate,
-                    setup_fee_rate=fee,
-                )
-                margin = calculate_margin(profit, int(round(effective_cost)))
-
-                name = item_names.get(out_id) if item_names else None
-                if not name:
-                    name = out_id.replace("_", " ").title()
-
-                ingredients_desc = f"{raw_qty}x {raw_id.split('@')[0]} + 1x {prev_id}"
-
-                opportunities.append(
-                    CraftingOpportunity(
-                        item_id=out_id,
-                        item_name=name,
-                        craft_type=craft_label,
-                        craft_city=bonus_city,
-                        sell_city=sell_city,
-                        material_cost=float(mat_cost),
-                        effective_cost=float(effective_cost),
-                        sell_price=sell_price,
-                        profit_per_item=float(profit),
-                        margin_pct=float(margin),
-                        resource_return_rate=rrr,
-                        ingredients_desc=ingredients_desc,
-                        city_bonus=True,
-                        focus=focus,
-                        tier=tier,
-                        enchant=enchant,
-                    )
-                )
-
-    # 2. Equipment Crafting (Bags, Capes, Staffs, Weapons, Armors)
-    eq_rrr = 0.435 if focus else 0.152
-
-    for eq_type, label in (("BAG", "Bag Crafting"), ("CAPE", "Cape Crafting")):
-        for tier in (3, 4, 5, 6, 7, 8):
-            for enchant in (0, 1, 2, 3, 4):
-                if tier == 3 and enchant > 0:
-                    continue
-                suffix = f"@{enchant}" if enchant > 0 else ""
-                ench_lvl = f"_LEVEL{enchant}@{enchant}" if enchant > 0 else ""
-                item_id = f"T{tier}_{eq_type}{suffix}"
-                cloth_id = f"T{tier}_CLOTH{ench_lvl}"
-                leather_id = f"T{tier}_LEATHER{ench_lvl}"
-
-                cloth_p = cheapest_sell.get(cloth_id, (0, ""))[0]
-                leather_p = cheapest_sell.get(leather_id, (0, ""))[0]
-                if cloth_p <= 0 or leather_p <= 0:
-                    continue
-
-                if eq_type == "BAG":
-                    q = 4 if tier == 3 else 8
-                else:
-                    q = 2 if tier == 3 else 4
-
-                mat_cost = (q * cloth_p) + (q * leather_p)
-                effective_cost = mat_cost * (1.0 - eq_rrr)
-
-                if item_id not in highest_sell:
-                    continue
-                sell_price, sell_city = highest_sell[item_id]
-                if sell_price <= 0:
-                    continue
-
-                fee = 0.0 if sell_city == "Black Market" else setup_fee_rate
-                profit = calculate_crafting_profit(
-                    sell_price=sell_price,
-                    effective_material_cost=effective_cost,
-                    tax_rate=tax_rate,
-                    setup_fee_rate=fee,
-                )
-                margin = calculate_margin(profit, int(round(effective_cost)))
-
-                name = item_names.get(item_id) if item_names else None
-                if not name:
-                    name = item_id.replace("_", " ").title()
-
-                opportunities.append(
-                    CraftingOpportunity(
-                        item_id=item_id,
-                        item_name=name,
-                        craft_type=label,
-                        craft_city="Any Royal City",
-                        sell_city=sell_city,
-                        material_cost=float(mat_cost),
-                        effective_cost=float(effective_cost),
-                        sell_price=sell_price,
-                        profit_per_item=float(profit),
-                        margin_pct=float(margin),
-                        resource_return_rate=eq_rrr,
-                        ingredients_desc=f"{q}x Cloth + {q}x Leather",
-                        city_bonus=False,
-                        focus=focus,
-                        tier=tier,
-                        enchant=enchant,
-                    )
-                )
-
-    # 2b. Faction & Special Capes (Martlock, Bridgewatch, Fort Sterling, etc.)
-    faction_capes = [
-        ("CAPEITEM_FW_MARTLOCK", "Martlock Cape", "T1_FACTION_HIGHLAND_TOKEN_1", "Rockheart", "Martlock"),
-        ("CAPEITEM_FW_BRIDGEWATCH", "Bridgewatch Cape", "T1_FACTION_STEPPE_TOKEN_1", "Beastheart", "Bridgewatch"),
-        ("CAPEITEM_FW_FORTSTERLING", "Fort Sterling Cape", "T1_FACTION_MOUNTAIN_TOKEN_1", "Mountainheart", "Fort Sterling"),
-        ("CAPEITEM_FW_LYMHURST", "Lymhurst Cape", "T1_FACTION_FOREST_TOKEN_1", "Treeheart", "Lymhurst"),
-        ("CAPEITEM_FW_THETFORD", "Thetford Cape", "T1_FACTION_SWAMP_TOKEN_1", "Vineheart", "Thetford"),
-        ("CAPEITEM_FW_CAERLEON", "Caerleon Cape", "T1_FACTION_CAERLEON_TOKEN_1", "Shadowheart", "Caerleon"),
-        ("CAPEITEM_FW_BRECILIEN", "Brecilien Cape", "QUESTITEM_TOKEN_MISTS", "Faerie Fire", "Brecilien"),
-        ("CAPEITEM_HERETIC", "Heretic Cape", "T1_FACTION_FOREST_TOKEN_1", "Treeheart", "Toolmaker"),
-        ("CAPEITEM_UNDEAD", "Undead Cape", "T1_FACTION_MOUNTAIN_TOKEN_1", "Mountainheart", "Toolmaker"),
-        ("CAPEITEM_KEEPER", "Keeper Cape", "T1_FACTION_HIGHLAND_TOKEN_1", "Rockheart", "Toolmaker"),
-        ("CAPEITEM_MORGANA", "Morgana Cape", "T1_FACTION_SWAMP_TOKEN_1", "Vineheart", "Toolmaker"),
-        ("CAPEITEM_DEMON", "Demon Cape", "T1_FACTION_STEPPE_TOKEN_1", "Beastheart", "Toolmaker"),
-        ("CAPEITEM_AVALON", "Avalonian Cape", "QUESTITEM_TOKEN_AVALON", "Avalonian Energy", "Toolmaker"),
-        ("CAPEITEM_SMUGGLER", "Smuggler Cape", "T1_FACTION_CAERLEON_TOKEN_1", "Shadowheart", "Toolmaker"),
-    ]
-    heart_qty_map = {4: 1, 5: 1, 6: 3, 7: 5, 8: 10}
-
-    for cape_tag, cape_label, token_id, token_name, default_city in faction_capes:
-        for tier in (4, 5, 6, 7, 8):
-            for enchant in (0, 1, 2, 3, 4):
-                suffix = f"@{enchant}" if enchant > 0 else ""
-                item_id = f"T{tier}_{cape_tag}{suffix}"
-                base_cape_id = f"T{tier}_CAPE{suffix}"
-                crest_id = f"T{tier}_{cape_tag}_BP"
-                token_qty = heart_qty_map[tier] * 15 if cape_tag == "CAPEITEM_AVALON" else heart_qty_map[tier]
-
-                cape_p, cape_city = cheapest_sell.get(base_cape_id, (0, ""))
-                crest_p, crest_city = cheapest_sell.get(crest_id, (0, ""))
-                token_p, token_city = cheapest_sell.get(token_id, (0, ""))
-
-                if cape_p <= 0 or crest_p <= 0 or token_p <= 0:
-                    continue
-
-                mat_cost = cape_p + crest_p + (token_qty * token_p)
-                effective_cost = float(mat_cost)
-
-                if item_id not in highest_sell:
-                    continue
-                sell_price, sell_city = highest_sell[item_id]
-                if sell_price <= 0:
-                    continue
-
-                fee = 0.0 if sell_city == "Black Market" else setup_fee_rate
-                profit = calculate_crafting_profit(
-                    sell_price=sell_price,
-                    effective_material_cost=effective_cost,
-                    tax_rate=tax_rate,
-                    setup_fee_rate=fee,
-                )
-                margin = calculate_margin(profit, int(round(effective_cost)))
-
-                name = item_names.get(item_id) if item_names else None
-                if not name:
-                    name = item_id.replace("_", " ").title()
-
-                craft_city = default_city if default_city != "Toolmaker" else (cape_city or "Any Royal City")
-
-                opportunities.append(
-                    CraftingOpportunity(
-                        item_id=item_id,
-                        item_name=name,
-                        craft_type="Faction Capes",
-                        craft_city=craft_city,
-                        sell_city=sell_city,
-                        material_cost=float(mat_cost),
-                        effective_cost=float(effective_cost),
-                        sell_price=sell_price,
-                        profit_per_item=float(profit),
-                        margin_pct=float(margin),
-                        resource_return_rate=0.0,
-                        ingredients_desc=f"1x Base Cape T{tier}{suffix} + 1x {cape_label.split()[0]} Crest + {token_qty}x {token_name}",
-                        city_bonus=False,
-                        focus=focus,
-                        tier=tier,
-                        enchant=enchant,
-                    )
-                )
-
-    weapon_recipes = [
-        ("T{t}_MAIN_CURSEDSTAFF", "1H Cursed Staff", "Weapon", [("T{t}_PLANKS", 16), ("T{t}_METALBAR", 8)]),
-        ("T{t}_2H_CURSEDSTAFF", "Great Cursed Staff", "Weapon", [("T{t}_PLANKS", 20), ("T{t}_METALBAR", 12)]),
-        ("T{t}_MAIN_SWORD", "Broadsword", "Weapon", [("T{t}_METALBAR", 16), ("T{t}_LEATHER", 8)]),
-        ("T{t}_2H_BOW", "Bow", "Weapon", [("T{t}_PLANKS", 32)]),
-        ("T{t}_ARMOR_PLATE_SET1", "Soldier Armor", "Armor", [("T{t}_METALBAR", 16)]),
-        ("T{t}_ARMOR_LEATHER_SET1", "Mercenary Jacket", "Armor", [("T{t}_LEATHER", 16)]),
-        ("T{t}_ARMOR_CLOTH_SET1", "Mage Robe", "Armor", [("T{t}_CLOTH", 16)]),
-    ]
-
-    for template, label, category, ingredients in weapon_recipes:
-        for tier in (4, 5, 6):
-            item_id = template.format(t=tier)
-            total_mat_cost = 0.0
-            possible = True
-            desc_parts = []
-            for ing_tpl, qty in ingredients:
-                ing_id = ing_tpl.format(t=tier)
-                ing_p = cheapest_sell.get(ing_id, (0, ""))[0]
-                if ing_p <= 0:
-                    possible = False
-                    break
-                total_mat_cost += qty * ing_p
-                ing_name = ing_id.split("_")[-1].capitalize()
-                desc_parts.append(f"{qty}x {ing_name}")
-
-            if not possible:
-                continue
-
-            effective_cost = total_mat_cost * (1.0 - eq_rrr)
-            if item_id not in highest_sell:
-                continue
-            sell_price, sell_city = highest_sell[item_id]
-            if sell_price <= 0:
-                continue
-
-            fee = 0.0 if sell_city == "Black Market" else setup_fee_rate
-            profit = calculate_crafting_profit(
+        opportunities.append(
+            CraftingOpportunity(
+                item_id=out,
+                item_name=human_name(out, names),
+                craft_type=craft_label(recipe),
+                craft_city=craft_city,
+                sell_city=sell_city,
+                material_cost=float(material_cost / recipe.amount),
+                effective_cost=float(effective_cost),
                 sell_price=sell_price,
-                effective_material_cost=effective_cost,
-                tax_rate=tax_rate,
-                setup_fee_rate=fee,
+                profit_per_item=float(profit),
+                margin_pct=float(margin),
+                resource_return_rate=round(rrr, 4),
+                ingredients_desc=" + ".join(desc_parts) + amount_note,
+                city_bonus=bonus > no_city_bonus + 1e-9,
+                focus=focus,
+                tier=tier,
+                enchant=enchant,
+                item_value=recipe.item_value / recipe.amount,
+                daily_volume=compute_daily_volume(history_map, out, sell_city, 1, config.volume_days) if history_map else None,
+                ingredients=ingredients,
+                returned_value=float(returnable_cost * rrr / recipe.amount),
+                craft_silver=float(recipe.silver / recipe.amount),
+                tax_paid=float(sell_price * (tax_rate + setup_rate)),
+                sell_instant=instant,
+                city_return_rates=city_rates,
+                city_options=city_options,
+                quality_nets=[round(n, 1) for n in q_nets],
+                quality_exits=[e[1] if e else "" for e in q_exits] if q_exits else [""] * 5,
+                expected_profit=float(expected_revenue - effective_cost),
             )
-            margin = calculate_margin(profit, int(round(effective_cost)))
-
-            name = item_names.get(item_id) if item_names else None
-            if not name:
-                name = item_id.replace("_", " ").title()
-
-            opportunities.append(
-                CraftingOpportunity(
-                    item_id=item_id,
-                    item_name=name,
-                    craft_type=category,
-                    craft_city="Any Royal City",
-                    sell_city=sell_city,
-                    material_cost=float(total_mat_cost),
-                    effective_cost=float(effective_cost),
-                    sell_price=sell_price,
-                    profit_per_item=float(profit),
-                    margin_pct=float(margin),
-                    resource_return_rate=eq_rrr,
-                    ingredients_desc=" + ".join(desc_parts),
-                    city_bonus=False,
-                    focus=focus,
-                    tier=tier,
-                    enchant=0,
-                )
-            )
-
-    # 3. Royal Equipment Crafting (Royal Robe, Royal Jacket, Royal Armor, Royal Cowl, etc.)
-    royal_recipes = [
-        ("T{t}_ARMOR_CLOTH_ROYAL", "Royal Robe", "T{t}_ARMOR_CLOTH_SET1", 4),
-        ("T{t}_ARMOR_LEATHER_ROYAL", "Royal Jacket", "T{t}_ARMOR_LEATHER_SET1", 4),
-        ("T{t}_ARMOR_PLATE_ROYAL", "Royal Armor", "T{t}_ARMOR_PLATE_SET1", 4),
-        ("T{t}_HEAD_CLOTH_ROYAL", "Royal Cowl", "T{t}_HEAD_CLOTH_SET1", 2),
-        ("T{t}_HEAD_LEATHER_ROYAL", "Royal Hood", "T{t}_HEAD_LEATHER_SET1", 2),
-        ("T{t}_HEAD_PLATE_ROYAL", "Royal Helmet", "T{t}_HEAD_PLATE_SET1", 2),
-        ("T{t}_SHOES_CLOTH_ROYAL", "Royal Sandals", "T{t}_SHOES_CLOTH_SET1", 2),
-        ("T{t}_SHOES_LEATHER_ROYAL", "Royal Shoes", "T{t}_SHOES_LEATHER_SET1", 2),
-        ("T{t}_SHOES_PLATE_ROYAL", "Royal Boots", "T{t}_SHOES_PLATE_SET1", 2),
-    ]
-
-    for template, label, base_tpl, sigil_qty in royal_recipes:
-        for tier in (4, 5, 6, 7, 8):
-            out_id = template.format(t=tier)
-            base_id = base_tpl.format(t=tier)
-            sigil_id = f"QUESTITEM_TOKEN_ROYAL_T{tier}"
-
-            base_p = cheapest_sell.get(base_id, (0, ""))[0]
-            sigil_p = cheapest_sell.get(sigil_id, (0, ""))[0]
-
-            if base_p <= 0 or sigil_p <= 0:
-                continue
-
-            mat_cost = base_p + (sigil_qty * sigil_p)
-            effective_cost = (base_p * (1.0 - eq_rrr)) + (sigil_qty * sigil_p)
-
-            if out_id not in highest_sell:
-                continue
-            sell_price, sell_city = highest_sell[out_id]
-            if sell_price <= 0:
-                continue
-
-            fee = 0.0 if sell_city == "Black Market" else setup_fee_rate
-            profit = calculate_crafting_profit(
-                sell_price=sell_price,
-                effective_material_cost=effective_cost,
-                tax_rate=tax_rate,
-                setup_fee_rate=fee,
-            )
-            margin = calculate_margin(profit, int(round(effective_cost)))
-            name = item_names.get(out_id) if item_names else None
-            if not name:
-                name = out_id.replace("_", " ").title()
-
-            opportunities.append(
-                CraftingOpportunity(
-                    item_id=out_id,
-                    item_name=name,
-                    craft_type="Royal Crafting",
-                    craft_city="Royal Station",
-                    sell_city=sell_city,
-                    material_cost=float(mat_cost),
-                    effective_cost=float(effective_cost),
-                    sell_price=sell_price,
-                    profit_per_item=float(profit),
-                    margin_pct=float(margin),
-                    resource_return_rate=0.0,
-                    ingredients_desc=f"1x Base Gear + {sigil_qty}x Royal Sigil T{tier}",
-                    city_bonus=False,
-                    focus=focus,
-                    tier=tier,
-                    enchant=0,
-                )
-            )
+        )
 
     opportunities.sort(key=lambda x: x.profit_per_item, reverse=True)
     return opportunities
@@ -1003,16 +942,30 @@ def analyze_enchanting(
 ) -> tuple[list[EnchantingOpportunity], dict[str, Any]]:
     """Analyzes enchanting profitability across all monitored cities and the Black Market.
 
+    Rules:
+    - Material counts per step come from the game data (see calculate_enchanting_materials).
+    - The base item and the enchanted result are compared at the same quality, because
+      enchanting keeps quality. A Black Market buy order accepts any item of equal or
+      higher quality.
+    - Quotes older than config.craft_max_price_age_minutes are ignored.
+    - Opportunities are only computed with real (live or user-entered) material prices;
+      DEFAULT_RUNE_PRICES are reference values for the ticker only.
+
     Returns:
         (opportunities, material_status_dict)
     """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    max_age = config.craft_max_price_age_minutes
     clean_prices = deduplicate_prices(
         prices=prices,
         now=now,
         fulfilled_orders=fulfilled_orders,
         price_overrides=price_overrides,
     )
-    tax_rate = config.tax_rate_premium if config.premium else config.tax_rate_standard
+    tax_rate = config.active_tax_rate
     setup_fee_rate = config.setup_fee_rate
 
     # Build fast O(1) history index
@@ -1023,17 +976,15 @@ def analyze_enchanting(
         else:
             history_map = {(h.item_id, h.location, h.quality): h for h in history}
 
-    def get_target_volume_info(t_id: str, dest_city: str) -> tuple[float | None, bool, str]:
+    def get_target_volume_info(t_id: str, dest_city: str, quality: int) -> tuple[float | None, bool, str]:
         if not history_map:
             return None, True, "untracked"
 
-        vol = compute_daily_volume(history_map, t_id, dest_city, quality=1, volume_days=config.volume_days)
-        if vol is None or vol == 0:
-            for q in (2, 3):
-                q_vol = compute_daily_volume(history_map, t_id, dest_city, quality=q, volume_days=config.volume_days)
-                if q_vol is not None and q_vol > 0:
-                    vol = (vol or 0.0) + q_vol
-                    break
+        vol = compute_daily_volume(history_map, t_id, dest_city, quality=quality, volume_days=config.volume_days)
+        if (vol is None or vol == 0) and quality != 1:
+            q1_vol = compute_daily_volume(history_map, t_id, dest_city, quality=1, volume_days=config.volume_days)
+            if q1_vol is not None:
+                vol = q1_vol
 
         if vol is None:
             return None, True, "untracked"
@@ -1046,245 +997,163 @@ def analyze_enchanting(
         else:
             return vol, False, "dead"
 
-    # 1. Harvest live Rune, Soul, Relic prices per city and global lowest
+    # 1. Harvest live Rune, Soul, Relic prices (lowest fresh sell order) per city
     city_mats: dict[tuple[str, str], int] = {}
     cheapest_mats: dict[str, tuple[int, str]] = {}
-    mat_dates: dict[tuple[str, str], str] = {}
-
     for p in clean_prices:
         mat_id = p.item_id.upper()
-        if mat_id in DEFAULT_RUNE_PRICES:
-            price = p.sell_price_min if p.sell_price_min > 0 else (p.buy_price_max if p.buy_price_max > 0 else 0)
-            if price > 0:
-                curr_p = city_mats.get((mat_id, p.city), 0)
-                if curr_p == 0 or price < curr_p:
-                    city_mats[(mat_id, p.city)] = price
-                    mat_dates[(mat_id, p.city)] = p.sell_price_min_date or p.buy_price_max_date
-                if mat_id not in cheapest_mats or price < cheapest_mats[mat_id][0]:
-                    cheapest_mats[mat_id] = (price, p.city)
+        if mat_id not in DEFAULT_RUNE_PRICES or p.city == "Black Market":
+            continue
+        if not _fresh(p.sell_price_min, p.sell_price_min_date, now, max_age):
+            continue
+        price = p.sell_price_min
+        if price < city_mats.get((mat_id, p.city), price + 1):
+            city_mats[(mat_id, p.city)] = price
+        if mat_id not in cheapest_mats or price < cheapest_mats[mat_id][0]:
+            cheapest_mats[mat_id] = (price, p.city)
 
     # Build material status dict for the UI Artifact Foundry Ticker
     material_status: dict[str, Any] = {}
     for mat_id, def_price in DEFAULT_RUNE_PRICES.items():
         user_override = (custom_rune_prices or {}).get(mat_id)
         if user_override and user_override > 0:
-            final_p = user_override
-            source = "override"
+            final_p, source = user_override, "override"
         elif mat_id in cheapest_mats:
-            final_p = cheapest_mats[mat_id][0]
-            source = "live"
+            final_p, source = cheapest_mats[mat_id][0], "live"
         else:
-            final_p = def_price
-            source = "default"
+            final_p, source = def_price, "default"
 
-        tier = int(mat_id[1])
-        mat_type = mat_id.split("_")[1].lower()  # rune, soul, relic
         material_status[mat_id] = {
             "id": mat_id,
             "name": MATERIAL_NAMES.get(mat_id, mat_id),
-            "tier": tier,
-            "type": mat_type,
+            "tier": int(mat_id[1]),
+            "type": mat_id.split("_")[1].lower(),  # rune, soul, relic
             "price": final_p,
             "source": source,
             "city": cheapest_mats.get(mat_id, (0, "All"))[1],
         }
 
-    # Helper function to get material unit price for a given city
-    def get_mat_price(mat_id: str, city: str) -> int:
-        if custom_rune_prices and mat_id in custom_rune_prices and custom_rune_prices[mat_id] > 0:
+    def get_mat_price(mat_id: str, city: str) -> int | None:
+        """Real material price: user override, else same city, else cheapest city."""
+        if custom_rune_prices and custom_rune_prices.get(mat_id, 0) > 0:
             return custom_rune_prices[mat_id]
         if (mat_id, city) in city_mats:
             return city_mats[(mat_id, city)]
         if mat_id in cheapest_mats:
             return cheapest_mats[mat_id][0]
-        return DEFAULT_RUNE_PRICES.get(mat_id, 100)
+        return None
 
-    # 2. Build index of item prices
-    city_item_sell: dict[tuple[str, str], int] = {}
-    city_item_buy: dict[tuple[str, str], int] = {}
-    item_dates: dict[tuple[str, str], str] = {}
-    bm_buy: dict[str, int] = {}
-    bm_dates: dict[str, str] = {}
-    all_item_ids: set[str] = set()
+    # 2. Index fresh gear prices by (item, city, quality)
+    city_item_sell: dict[tuple[str, str, int], tuple[int, str]] = {}
+    bm_buy: dict[tuple[str, int], tuple[int, str]] = {}
+    all_keys: set[tuple[str, int]] = set()
 
     for p in clean_prices:
-        all_item_ids.add(p.item_id)
-        if p.sell_price_min > 0:
-            curr_sell = city_item_sell.get((p.item_id, p.city), 0)
-            if curr_sell == 0 or p.sell_price_min < curr_sell:
-                city_item_sell[(p.item_id, p.city)] = p.sell_price_min
-                item_dates[(p.item_id, p.city)] = p.sell_price_min_date
-        if p.buy_price_max > 0:
-            curr_buy = city_item_buy.get((p.item_id, p.city), 0)
-            if p.buy_price_max > curr_buy:
-                city_item_buy[(p.item_id, p.city)] = p.buy_price_max
-        if p.city == "Black Market" and p.buy_price_max > 0:
-            curr_bm = bm_buy.get(p.item_id, 0)
-            if p.buy_price_max > curr_bm:
-                bm_buy[p.item_id] = p.buy_price_max
-                bm_dates[p.item_id] = p.buy_price_max_date
+        if not is_enchantable_item(p.item_id):
+            continue
+        if p.city != "Black Market" and _fresh(p.sell_price_min, p.sell_price_min_date, now, max_age):
+            city_item_sell[(p.item_id, p.city, p.quality)] = (p.sell_price_min, p.sell_price_min_date)
+            all_keys.add((p.item_id, p.quality))
+        if p.city == "Black Market" and _fresh(p.buy_price_max, p.buy_price_max_date, now, max_age):
+            key = (p.item_id, p.quality)
+            if p.buy_price_max > bm_buy.get(key, (0, ""))[0]:
+                bm_buy[key] = (p.buy_price_max, p.buy_price_max_date)
 
-    item_cities_sell: dict[str, list[tuple[str, int]]] = {}
-    for (it_id, c_name), b_cost in city_item_sell.items():
-        if b_cost > 0:
-            item_cities_sell.setdefault(it_id, []).append((c_name, b_cost))
+    def best_bm_order(target_id: str, quality: int) -> tuple[int, str] | None:
+        """Best Black Market buy order an item of `quality` can fill (order quality <= quality)."""
+        best: tuple[int, str] | None = None
+        for q in range(1, quality + 1):
+            order = bm_buy.get((target_id, q))
+            if order and (best is None or order[0] > best[0]):
+                best = order
+        return best
+
+    def age_minutes(date_str: str | None) -> float:
+        parsed = parse_aodp_datetime(date_str or "")
+        return max(0.0, (now - parsed).total_seconds() / 60.0) if parsed else 0.0
+
+    sell_by_item_quality: dict[tuple[str, int], list[tuple[str, int]]] = {}
+    for (it_id, c_name, q), (cost, _) in city_item_sell.items():
+        sell_by_item_quality.setdefault((it_id, q), []).append((c_name, cost))
 
     # 3. Analyze all enchantable gear
     opportunities: list[EnchantingOpportunity] = []
-    seen_opp_keys: set[tuple[str, str, str, str]] = set()
+    upgrades = load_recipe_book().upgrades
 
-    for raw_id in all_item_ids:
-        if not is_enchantable_item(raw_id):
-            continue
-
+    for raw_id, quality in all_keys:
         base_stem = raw_id.split("@")[0]
         tier = int(base_stem[1]) if len(base_stem) > 1 and base_stem[1].isdigit() else 4
         from_enchant = int(raw_id.split("@")[1]) if "@" in raw_id else 0
-
         if from_enchant >= 3:
             continue
 
         slot_type, mat_qty = calculate_enchanting_materials(base_stem)
-        human_name = (item_names or {}).get(base_stem) or base_stem.replace("_", " ").title()
+        game_upgrade = upgrades.get(base_stem, {}).get(1)
+        if game_upgrade:
+            mat_qty = game_upgrade[1]
+        human = human_name(base_stem, item_names)
+        step_mats = {1: f"T{tier}_RUNE", 2: f"T{tier}_SOUL", 3: f"T{tier}_RELIC"}
 
-        steps: list[tuple[int, list[str]]] = []
-        if from_enchant == 0:
-            steps.append((1, [f"T{tier}_RUNE"]))
-            steps.append((2, [f"T{tier}_RUNE", f"T{tier}_SOUL"]))
-            steps.append((3, [f"T{tier}_RUNE", f"T{tier}_SOUL", f"T{tier}_RELIC"]))
-        elif from_enchant == 1:
-            steps.append((2, [f"T{tier}_SOUL"]))
-            steps.append((3, [f"T{tier}_SOUL", f"T{tier}_RELIC"]))
-        elif from_enchant == 2:
-            steps.append((3, [f"T{tier}_RELIC"]))
-
-        # For every city where raw_id can be bought:
-        for city, buy_cost in item_cities_sell.get(raw_id, []):
-
-            for to_enchant, mat_ids in steps:
+        for city, buy_cost in sell_by_item_quality.get((raw_id, quality), []):
+            for to_enchant in range(from_enchant + 1, 4):
                 target_id = f"{base_stem}@{to_enchant}"
+                mat_ids = [step_mats[lvl] for lvl in range(from_enchant + 1, to_enchant + 1)]
+                unit_prices = [get_mat_price(m, city) for m in mat_ids]
+                if any(u is None for u in unit_prices):
+                    continue  # no real price for a rune/soul/relic yet
 
-                # Calculate total enchanting materials cost in this city
-                total_mat_cost = 0
-                mat_labels: list[str] = []
-                for m_id in mat_ids:
-                    u_price = get_mat_price(m_id, city)
-                    total_mat_cost += mat_qty * u_price
-                    mat_name = MATERIAL_NAMES.get(m_id, m_id)
-                    mat_labels.append(f"{mat_qty}x {mat_name} (@ {u_price:,}s)")
+                total_mat_cost = sum(mat_qty * int(u) for u in unit_prices)
+                mat_desc = " + ".join(
+                    f"{mat_qty}x {MATERIAL_NAMES.get(m, m)} (@ {int(u):,}s)" for m, u in zip(mat_ids, unit_prices)
+                )
+                exits: list[tuple[str, int, str | None, bool]] = []
+                local = city_item_sell.get((target_id, city, quality))
+                if local:
+                    exits.append((city, local[0], local[1], False))
+                bm = best_bm_order(target_id, quality)
+                if bm:
+                    exits.append(("Black Market", bm[0], bm[1], True))
 
-                mat_desc = " + ".join(mat_labels)
-                primary_mat_id = mat_ids[0] if len(mat_ids) == 1 else " + ".join(mat_ids)
-                primary_mat_name = mat_desc
-
-                # Check sell targets:
-                # 1. Same City Market Sell Order (local foundry enchanting)
-                if (target_id, city) in city_item_sell:
-                    target_sell = city_item_sell[(target_id, city)]
-                    if target_sell > 0:
-                        tot_cost, profit, margin = calculate_enchanting_profit(
-                            base_item_price=buy_cost,
-                            enchant_mat_cost=total_mat_cost,
-                            sell_price=target_sell,
-                            tax_rate=tax_rate,
-                            setup_fee_rate=setup_fee_rate,
-                            is_buy_order_exit=False,
-                        )
-                        opp_key = (raw_id, target_id, city, city)
-                        if opp_key not in seen_opp_keys:
-                            seen_opp_keys.add(opp_key)
-                            age_min = 0.0
-                            date_str = item_dates.get((target_id, city)) or item_dates.get((raw_id, city))
-                            if date_str and now:
-                                parsed_dt = parse_aodp_datetime(date_str)
-                                if parsed_dt:
-                                    age_min = max(0.0, (now - parsed_dt).total_seconds() / 60.0)
-
-                            t_vol, t_missing, t_liq = get_target_volume_info(target_id, city)
-                            opportunities.append(EnchantingOpportunity(
-                                base_item_id=raw_id,
-                                target_item_id=target_id,
-                                item_name=human_name,
-                                tier=tier,
-                                from_enchant=from_enchant,
-                                to_enchant=to_enchant,
-                                city=city,
-                                sell_city=city,
-                                base_item_price=buy_cost,
-                                enchant_mat_id=primary_mat_id,
-                                enchant_mat_name=primary_mat_name,
-                                enchant_mat_qty=mat_qty * len(mat_ids),
-                                enchant_mat_unit_price=get_mat_price(mat_ids[0], city),
-                                enchant_mat_total_cost=total_mat_cost,
-                                total_cost=tot_cost,
-                                sell_price=target_sell,
-                                net_revenue=tot_cost + profit,
-                                profit_per_item=profit,
-                                margin_pct=round(margin, 1),
-                                is_profitable=(profit > 0),
-                                mass_batch_size=mass_batch_size,
-                                mass_profit=profit * mass_batch_size,
-                                item_type=slot_type,
-                                data_age_minutes=age_min,
-                                target_daily_volume=t_vol,
-                                target_history_missing=t_missing,
-                                liquidity_status=t_liq,
-                            ))
-
-                # 2. Black Market Buy Order (instant sell)
-                if target_id in bm_buy:
-                    bm_sell = bm_buy[target_id]
-                    if bm_sell > 0:
-                        tot_cost, profit, margin = calculate_enchanting_profit(
-                            base_item_price=buy_cost,
-                            enchant_mat_cost=total_mat_cost,
-                            sell_price=bm_sell,
-                            tax_rate=tax_rate,
-                            setup_fee_rate=0.0,
-                            is_buy_order_exit=True,
-                        )
-                        opp_key = (raw_id, target_id, city, "Black Market")
-                        if opp_key not in seen_opp_keys:
-                            seen_opp_keys.add(opp_key)
-                            age_min = 0.0
-                            date_str = bm_dates.get(target_id)
-                            if date_str and now:
-                                parsed_dt = parse_aodp_datetime(date_str)
-                                if parsed_dt:
-                                    age_min = max(0.0, (now - parsed_dt).total_seconds() / 60.0)
-
-                            bm_vol, bm_missing, bm_liq = get_target_volume_info(target_id, "Black Market")
-                            opportunities.append(EnchantingOpportunity(
-                                base_item_id=raw_id,
-                                target_item_id=target_id,
-                                item_name=human_name,
-                                tier=tier,
-                                from_enchant=from_enchant,
-                                to_enchant=to_enchant,
-                                city=city,
-                                sell_city="Black Market",
-                                base_item_price=buy_cost,
-                                enchant_mat_id=primary_mat_id,
-                                enchant_mat_name=primary_mat_name,
-                                enchant_mat_qty=mat_qty * len(mat_ids),
-                                enchant_mat_unit_price=get_mat_price(mat_ids[0], city),
-                                enchant_mat_total_cost=total_mat_cost,
-                                total_cost=tot_cost,
-                                sell_price=bm_sell,
-                                net_revenue=tot_cost + profit,
-                                profit_per_item=profit,
-                                margin_pct=round(margin, 1),
-                                is_profitable=(profit > 0),
-                                mass_batch_size=mass_batch_size,
-                                mass_profit=profit * mass_batch_size,
-                                item_type=slot_type,
-                                data_age_minutes=age_min,
-                                target_daily_volume=bm_vol,
-                                target_history_missing=bm_missing,
-                                liquidity_status=bm_liq,
-                            ))
+                for sell_city, sell_price, date_str, is_bm in exits:
+                    tot_cost, profit, margin = calculate_enchanting_profit(
+                        base_item_price=buy_cost,
+                        enchant_mat_cost=total_mat_cost,
+                        sell_price=sell_price,
+                        tax_rate=tax_rate,
+                        setup_fee_rate=0.0 if is_bm else setup_fee_rate,
+                        is_buy_order_exit=is_bm,
+                    )
+                    t_vol, t_missing, t_liq = get_target_volume_info(target_id, sell_city, quality)
+                    opportunities.append(EnchantingOpportunity(
+                        base_item_id=raw_id,
+                        target_item_id=target_id,
+                        item_name=human,
+                        tier=tier,
+                        from_enchant=from_enchant,
+                        to_enchant=to_enchant,
+                        city=city,
+                        sell_city=sell_city,
+                        base_item_price=buy_cost,
+                        enchant_mat_id=mat_ids[0] if len(mat_ids) == 1 else " + ".join(mat_ids),
+                        enchant_mat_name=mat_desc,
+                        enchant_mat_qty=mat_qty * len(mat_ids),
+                        enchant_mat_unit_price=int(unit_prices[0]),
+                        enchant_mat_total_cost=total_mat_cost,
+                        total_cost=tot_cost,
+                        sell_price=sell_price,
+                        net_revenue=tot_cost + profit,
+                        profit_per_item=profit,
+                        margin_pct=round(margin, 1),
+                        is_profitable=(profit > 0),
+                        mass_batch_size=mass_batch_size,
+                        mass_profit=profit * mass_batch_size,
+                        item_type=slot_type,
+                        data_age_minutes=age_minutes(date_str),
+                        target_daily_volume=t_vol,
+                        target_history_missing=t_missing,
+                        liquidity_status=t_liq,
+                        quality=quality,
+                    ))
 
     opportunities.sort(key=lambda o: (o.is_profitable, o.profit_per_item, o.margin_pct), reverse=True)
     return opportunities, material_status
-
-

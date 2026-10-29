@@ -12,3 +12,5 @@ build/
 albiondata-client/
 .DS_Store
 
+/AlbionMarketPulse.exe
+/AlbionAnalyser-Setup-*.exe

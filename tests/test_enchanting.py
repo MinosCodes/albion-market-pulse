@@ -13,24 +13,24 @@ from albion_flips.web import FlipDataStore, start_web_server
 
 def test_calculate_enchanting_materials_rules() -> None:
     # 2H Weapons require 192 materials
-    assert calculate_enchanting_materials("T4_2H_BOW") == ("2H Weapon", 192)
-    assert calculate_enchanting_materials("T6_2H_CLAYMORE") == ("2H Weapon", 192)
-    assert calculate_enchanting_materials("T5_2H_CROSSBOW@1") == ("2H Weapon", 192)
+    assert calculate_enchanting_materials("T4_2H_BOW") == ("2H Weapon", 384)
+    assert calculate_enchanting_materials("T6_2H_CLAYMORE") == ("2H Weapon", 384)
+    assert calculate_enchanting_materials("T5_2H_CROSSBOW@1") == ("2H Weapon", 384)
 
     # 1H Weapons require 144 materials
-    assert calculate_enchanting_materials("T4_MAIN_SWORD") == ("1H Weapon", 144)
-    assert calculate_enchanting_materials("T7_MAIN_AXE") == ("1H Weapon", 144)
+    assert calculate_enchanting_materials("T4_MAIN_SWORD") == ("1H Weapon", 288)
+    assert calculate_enchanting_materials("T7_MAIN_AXE") == ("1H Weapon", 288)
 
     # Armor and Bags require 96 materials
-    assert calculate_enchanting_materials("T4_ARMOR_CLOTH_SET1") == ("Armor", 96)
-    assert calculate_enchanting_materials("T5_BAG") == ("Bag", 96)
-    assert calculate_enchanting_materials("T4_BAG_INSIGHT") == ("Bag", 96)
+    assert calculate_enchanting_materials("T4_ARMOR_CLOTH_SET1") == ("Armor", 192)
+    assert calculate_enchanting_materials("T5_BAG") == ("Bag", 192)
+    assert calculate_enchanting_materials("T4_BAG_INSIGHT") == ("Bag", 192)
 
     # Helmets, Shoes, Capes, Off-hands require 48 materials
-    assert calculate_enchanting_materials("T4_HEAD_PLATE_SET1") == ("Helmet", 48)
-    assert calculate_enchanting_materials("T5_SHOES_LEATHER_SET1") == ("Boots", 48)
-    assert calculate_enchanting_materials("T4_CAPE") == ("Cape", 48)
-    assert calculate_enchanting_materials("T4_OFF_SHIELD") == ("Off-hand", 48)
+    assert calculate_enchanting_materials("T4_HEAD_PLATE_SET1") == ("Helmet", 96)
+    assert calculate_enchanting_materials("T5_SHOES_LEATHER_SET1") == ("Boots", 96)
+    assert calculate_enchanting_materials("T4_CAPE") == ("Cape", 96)
+    assert calculate_enchanting_materials("T4_OFF_SHIELD") == ("Off-hand", 96)
 
 
 def test_calculate_enchanting_profit_math() -> None:
@@ -103,9 +103,9 @@ def test_analyze_enchanting_engine() -> None:
             item_id="T4_BAG@1",
             city="Martlock",
             quality=1,
-            sell_price_min=7500,
+            sell_price_min=12000,
             sell_price_min_date=now.isoformat(),
-            sell_price_max=7500,
+            sell_price_max=12000,
             sell_price_max_date=now.isoformat(),
             buy_price_min=0,
             buy_price_min_date="",
@@ -142,13 +142,13 @@ def test_analyze_enchanting_engine() -> None:
     assert martlock_opp.from_enchant == 0
     assert martlock_opp.to_enchant == 1
     assert martlock_opp.base_item_price == 1200
-    assert martlock_opp.enchant_mat_qty == 96
+    assert martlock_opp.enchant_mat_qty == 192
     assert martlock_opp.enchant_mat_unit_price == 40
-    assert martlock_opp.enchant_mat_total_cost == 3840
-    assert martlock_opp.total_cost == 5040
-    assert martlock_opp.profit_per_item == 1972
+    assert martlock_opp.enchant_mat_total_cost == 7680
+    assert martlock_opp.total_cost == 8880
+    assert martlock_opp.profit_per_item == 2340
     assert martlock_opp.is_profitable is True
-    assert martlock_opp.mass_profit == 19720  # 10x batch default
+    assert martlock_opp.mass_profit == 23400  # 10x batch default
 
 
 def test_web_store_enchanting_integration() -> None:
@@ -183,7 +183,7 @@ def test_web_store_enchanting_integration() -> None:
                 "ItemTypeId": "T4_BAG@1",
                 "LocationId": "3008",  # Martlock
                 "QualityLevel": 1,
-                "UnitPriceSilver": 90000000,  # 9,000 silver
+                "UnitPriceSilver": 150000000,  # 15,000 silver
                 "Amount": 5,
                 "AuctionType": "offer",
             },
@@ -200,7 +200,7 @@ def test_web_store_enchanting_integration() -> None:
         assert bag_ench is not None
         assert bag_ench["base_item_price"] == 1500
         assert bag_ench["enchant_mat_unit_price"] == 45
-        assert bag_ench["total_cost"] == 1500 + (96 * 45)
+        assert bag_ench["total_cost"] == 1500 + (192 * 45)
         assert bag_ench["is_profitable"] is True
         assert bag_ench["is_live_sniffer"] is True
 
@@ -326,25 +326,32 @@ def test_ingest_market_histories_radar_and_volume() -> None:
     config = AppConfig()
     store.update(server="europe", last_refresh="2026-10-10 12:00:00 UTC", opportunities=[], config=config)
 
-    histories = [
+    day_ticks = 621355968000000000 + int(datetime(2026, 10, 10, tzinfo=timezone.utc).timestamp()) * 10_000_000
+    six_hours = 6 * 3600 * 10_000_000
+    uploads = [
         {
-            "ItemTypeId": "T4_BAG@1",
+            "AlbionId": 2888,  # T4_BAG
             "LocationId": "3008",  # Martlock
             "QualityLevel": 1,
-            "ItemCount": 45,
-            "AvgPrice": 75000000,  # 7,500 silver
-            "Timestamp": "2026-10-10T11:00:00",
+            "Timescale": 1,
+            "MarketHistories": [
+                {"ItemAmount": 30, "SilverAmount": 30 * 7500 * 10000, "Timestamp": day_ticks + six_hours},
+                {"ItemAmount": 15, "SilverAmount": 15 * 7500 * 10000, "Timestamp": day_ticks + 2 * six_hours},
+            ],
         }
     ]
-    res = store.ingest_market_histories(histories)
+    res = store.ingest_market_histories(uploads)
     assert res["histories_processed"] == 1
+
+    record = next(h for h in store.last_history if h.item_id == "T4_BAG" and h.location == "Martlock")
+    assert [(p.timestamp, p.item_count, p.avg_price) for p in record.data] == [("2026-10-10T00:00:00", 45, 7500)]
 
     data = store.get_data()
     assert "live_sniffer_events" in data
     assert len(data["live_sniffer_events"]) >= 1
 
     event = data["live_sniffer_events"][0]
-    assert event["item_id"] == "T4_BAG@1"
+    assert event["item_id"] == "T4_BAG"
     assert event["city"] == "Martlock"
     assert event["daily_volume"] is not None
     assert "Safe to mass enchant" in event["verdict"] or "VERIFIED" in event["verdict"]

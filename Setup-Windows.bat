@@ -49,13 +49,10 @@ echo.
 echo [3/4] Checking Albion Data Client (Live Ingest)...
 if not exist "albiondata-client\albiondata-client.exe" (
     if not exist "albiondata-client.exe" (
-        echo Albion Data Client is missing. Downloading Windows release from GitHub...
-        powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/ao-data/albiondata-client/releases/download/v0.1.59/albiondata-client-windows-amd64.zip' -OutFile 'albiondata-client.zip'"
-        if exist "albiondata-client.zip" (
-            echo Extracting client...
-            powershell -Command "Expand-Archive -Path 'albiondata-client.zip' -DestinationPath 'albiondata-client' -Force"
-            del albiondata-client.zip >nul 2>&1
-            echo [SUCCESS] Albion Data Client downloaded and extracted into albiondata-client folder!
+        echo Albion Data Client is missing. Downloading the latest Windows release from GitHub...
+        powershell -NoProfile -ExecutionPolicy Bypass -File "tools\get-albiondata-client.ps1"
+        if exist "albiondata-client\albiondata-client.exe" (
+            echo [SUCCESS] Albion Data Client saved to the albiondata-client folder!
         ) else (
             echo [WARNING] Could not auto-download client. You can manually download from:
             echo https://github.com/ao-data/albiondata-client/releases

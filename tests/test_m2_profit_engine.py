@@ -219,7 +219,7 @@ def test_calculate_crafting_profit_and_analyzer() -> None:
             buy_price_max_date="",
         ),
     ]
-    crafts = analyze_crafting(prices, cfg, focus=False)
+    crafts = analyze_crafting(prices, cfg, focus=False, now=datetime(2026, 10, 9, 8, 30, tzinfo=timezone.utc))
     assert len(crafts) >= 1
     t4_plank_craft = [c for c in crafts if c.item_id == "T4_PLANKS"][0]
     assert t4_plank_craft.craft_city == "Fort Sterling"
@@ -424,7 +424,7 @@ def test_tier_3_refining_supported() -> None:
         }),
     ]
 
-    crafts = analyze_crafting(prices, cfg, focus=False)
+    crafts = analyze_crafting(prices, cfg, focus=False, now=datetime(2026, 10, 9, 8, 30, tzinfo=timezone.utc))
     t3_wood_craft = [c for c in crafts if c.item_id == "T3_PLANKS"]
     assert len(t3_wood_craft) >= 1
     assert t3_wood_craft[0].tier == 3
@@ -635,12 +635,12 @@ def test_martlock_cape_crafting() -> None:
         ),
     ]
 
-    crafts = analyze_crafting(prices, cfg, focus=False)
+    crafts = analyze_crafting(prices, cfg, focus=False, now=datetime(2026, 10, 9, 8, 30, tzinfo=timezone.utc))
     martlock_crafts = [c for c in crafts if c.item_id == "T4_CAPEITEM_FW_MARTLOCK"]
     assert len(martlock_crafts) == 1
 
     op = martlock_crafts[0]
-    assert op.craft_city == "Martlock"
+    assert op.craft_city == "Martlock"  # the only city selling the base cape
     assert op.sell_city == "Caerleon"
     assert op.craft_type == "Faction Capes"
     # Material cost: 10000 (cape) + 15000 (crest) + 4000 (1x rockheart) = 29000
@@ -657,6 +657,7 @@ def test_crafting_synchronized_with_scanned_prices_and_overrides() -> None:
     """Verifies that newer scanned prices and manual overrides overwrite older data in crafting."""
     cfg = get_test_config()
     cfg.cities = ["Martlock", "Black Market", "Caerleon"]
+    cfg.max_margin_pct = 1000  # the overridden cloth price makes this craft a 500%+ margin
 
     prices = [
         # Older scan: T4_CLOTH at 1,000
@@ -719,7 +720,7 @@ def test_crafting_synchronized_with_scanned_prices_and_overrides() -> None:
 
     # Without overrides: newer cloth price (2500) overwrote older (1000)
     # T4 Bag material cost: 8 * 2500 + 8 * 1000 = 20000 + 8000 = 28000
-    crafts = analyze_crafting(prices, cfg, focus=False)
+    crafts = analyze_crafting(prices, cfg, focus=False, now=datetime(2026, 10, 9, 8, 30, tzinfo=timezone.utc))
     t4_bag = [c for c in crafts if c.item_id == "T4_BAG"][0]
     assert t4_bag.material_cost == 28000.0
     assert t4_bag.sell_city == "Black Market"
@@ -727,7 +728,7 @@ def test_crafting_synchronized_with_scanned_prices_and_overrides() -> None:
 
     # With user override: user manually sets T4_CLOTH in Martlock to 500
     overrides = {("T4_CLOTH", "Martlock", 1): 500}
-    crafts_overridden = analyze_crafting(prices, cfg, focus=False, price_overrides=overrides)
+    crafts_overridden = analyze_crafting(prices, cfg, focus=False, price_overrides=overrides, now=datetime(2026, 10, 9, 8, 30, tzinfo=timezone.utc))
     t4_bag_ov = [c for c in crafts_overridden if c.item_id == "T4_BAG"][0]
     # Overridden cost: 8 * 500 + 8 * 1000 = 4000 + 8000 = 12000
     assert t4_bag_ov.material_cost == 12000.0

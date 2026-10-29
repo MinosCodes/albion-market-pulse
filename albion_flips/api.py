@@ -11,10 +11,11 @@ from urllib.parse import urlencode
 import requests
 
 from albion_flips.models import HistoryRecord, PriceRecord
+from albion_flips.paths import CACHE_DIR
 
 logger = logging.getLogger(__name__)
 
-USER_AGENT = "albion-market-analyzer/0.1"
+USER_AGENT = "albion-market-pulse/0.2 (+https://github.com/MinosCodes/albion-market-pulse)"
 DEFAULT_BATCH_SIZE = 200
 MAX_URL_LENGTH = 3800
 
@@ -30,7 +31,7 @@ class AodpClient:
         self,
         server: str = "europe",
         session: requests.Session | None = None,
-        cache_dir: Path | str | None = ".cache",
+        cache_dir: Path | str | None = CACHE_DIR,
         batch_size: int = DEFAULT_BATCH_SIZE,
         max_url_length: int = MAX_URL_LENGTH,
         prices_cache_ttl_seconds: int = 60,
@@ -38,7 +39,7 @@ class AodpClient:
         max_retries: int = 5,
         backoff_factor: float = 1.0,
     ) -> None:
-        self.server = server.lower()
+        self.server = {"west": "americas", "east": "asia"}.get(server.lower(), server.lower())
         if self.server not in self.SERVER_HOSTS:
             raise ValueError(f"Unknown server '{server}'")
         self.host = self.SERVER_HOSTS[self.server]

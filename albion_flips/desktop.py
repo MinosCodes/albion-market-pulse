@@ -41,8 +41,12 @@ def open_desktop_window(
         if on_closed:
             window.events.closed += on_closed
 
-        # Start native event loop (blocks until window is closed)
-        webview.start(debug=False)
+        # Start native event loop (blocks until window is closed). pywebview defaults to a
+        # private session that wipes browser storage on exit; keep it so dashboard
+        # settings (mount, station fee, filters) survive restarts.
+        from albion_flips.paths import USER_DIR
+
+        webview.start(debug=False, private_mode=False, storage_path=str(USER_DIR / "webview"))
 
     except Exception as exc:
         logger.warning(

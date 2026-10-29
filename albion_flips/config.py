@@ -5,7 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from albion_flips.paths import BUNDLE_DIR, USER_DIR, data_file
+
 VALID_SERVERS = {"europe", "americas", "asia"}
+# The README and the AODP hostnames use west/east; accept those spellings too.
+SERVER_ALIASES = {"west": "americas", "east": "asia", "eu": "europe", "us": "americas", "na": "americas"}
 KNOWN_CITIES = {
     "Bridgewatch",
     "Fort Sterling",
@@ -34,6 +38,7 @@ class AppConfig:
             "Martlock",
             "Thetford",
             "Caerleon",
+            "Brecilien",
             "Black Market",
         ]
     )
@@ -48,6 +53,7 @@ class AppConfig:
     min_daily_volume: int = 50
     volume_days: int = 3
     max_price_age_minutes: int = 120
+    craft_max_price_age_minutes: int = 360
     stack_size: int = 100
     refresh_seconds: int = 180
     top_n: int = 25
@@ -66,6 +72,11 @@ class AppConfig:
     notify_profit_silver: int | None = None
     web_enabled: bool = False
     web_port: int = 8765
+    # Albion Data Client managed by the app (Windows): see albion_flips/sniffer.py
+    sniffer_enabled: bool = True
+    sniffer_auto_download: bool = True
+    sniffer_hide_window: bool = True
+    sniffer_share_with_aodp: bool = True
 
     @property
     def active_tax_rate(self) -> float:
@@ -111,17 +122,26 @@ class AppConfig:
         web_dict = data.get("web", {})
         web_enabled = bool(web_dict.get("enabled", False))
         web_port = int(web_dict.get("port", 8765))
+        sniffer_dict = data.get("sniffer", {})
 
+        server = str(data.get("server", "europe")).strip().lower()
+        server = SERVER_ALIASES.get(server, server)
+
+        cities = list(data.get("cities", [
+            "Bridgewatch",
+            "Fort Sterling",
+            "Lymhurst",
+            "Martlock",
+            "Thetford",
+            "Caerleon",
+        ]))
+        # Older config files left out Brecilien, so its prices were never fetched.
+        royal = {"Bridgewatch", "Fort Sterling", "Lymhurst", "Martlock", "Thetford"}
+        if royal <= set(cities) and "Brecilien" not in cities:
+            cities.insert(cities.index("Black Market") if "Black Market" in cities else len(cities), "Brecilien")
         cfg = cls(
-            server=data.get("server", "europe"),
-            cities=list(data.get("cities", [
-                "Bridgewatch",
-                "Fort Sterling",
-                "Lymhurst",
-                "Martlock",
-                "Thetford",
-                "Caerleon",
-            ])),
+            server=server,
+            cities=cities,
             qualities=list(data.get("qualities", [1, 2, 3, 4, 5])),
             premium=bool(data.get("premium", True)),
             tax_rate_premium=float(data.get("tax_rate_premium", 0.04)),
@@ -133,6 +153,7 @@ class AppConfig:
             min_daily_volume=int(data.get("min_daily_volume", 50)),
             volume_days=int(data.get("volume_days", 3)),
             max_price_age_minutes=int(data.get("max_price_age_minutes", 120)),
+            craft_max_price_age_minutes=int(data.get("craft_max_price_age_minutes", 360)),
             stack_size=int(data.get("stack_size", 100)),
             refresh_seconds=int(data.get("refresh_seconds", 180)),
             top_n=int(data.get("top_n", 25)),
@@ -148,6 +169,10 @@ class AppConfig:
             notify_profit_silver=data.get("notify_profit_silver"),
             web_enabled=web_enabled,
             web_port=web_port,
+            sniffer_enabled=bool(sniffer_dict.get("enabled", True)),
+            sniffer_auto_download=bool(sniffer_dict.get("auto_download", True)),
+            sniffer_hide_window=bool(sniffer_dict.get("hide_window", True)),
+            sniffer_share_with_aodp=bool(sniffer_dict.get("share_with_aodp", True)),
         )
         cfg.validate()
         return cfg
@@ -159,7 +184,11 @@ def load_config(path: Path | str | None = None) -> AppConfig:
     if path:
         candidate_paths.append(Path(path))
     else:
-        candidate_paths.extend([Path("config.json"), Path("config.example.json")])
+        candidate_paths.extend([
+            USER_DIR / "config.json",
+            BUNDLE_DIR / "config.json",
+            BUNDLE_DIR / "config.example.json",
+        ])
 
     for p in candidate_paths:
         if p.is_file():
@@ -205,9 +234,9 @@ def expand_items(data: dict[str, Any]) -> list[str]:
     return result
 
 
-def load_items(path: Path | str = "data/items.json") -> list[str]:
+def load_items(path: Path | str | None = None) -> list[str]:
     """Loads and expands item definitions from JSON file."""
-    p = Path(path)
+    p = Path(path) if path else data_file("items.json")
     if not p.is_file():
         raise FileNotFoundError(f"Items file not found: {path}")
     with open(p, "r", encoding="utf-8") as f:
