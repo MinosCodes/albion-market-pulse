@@ -33,7 +33,7 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 from urllib.parse import urlsplit
 
 APP_NAME = "AlbionMarketPulse"
@@ -56,6 +56,7 @@ class ClientSettings:
     aodp_upload: str = DEFAULT_AODP_UPLOAD
     data_client_version: str = "latest"
     auto_start: bool = True   # connect and start immediately when the program opens
+    overlay: dict = field(default_factory=dict)  # in-game overlay: enabled, x, y, alpha
     extra: dict = field(default_factory=dict)
 
     def complete(self) -> bool:
@@ -171,6 +172,8 @@ def load_settings(path: Path | None = None, defaults: ClientSettings | None = No
                 setattr(s, k, str(data[k]))
         if "auto_start" in data:
             s.auto_start = bool(data["auto_start"])
+        if isinstance(data.get("overlay"), dict):
+            s.overlay = clean_overlay_prefs(data["overlay"])
     return s
 
 
@@ -180,6 +183,7 @@ def save_settings(s: ClientSettings, path: Path | None = None) -> Path:
     s.aodp_upload = validate_aodp_upload(s.aodp_upload)
     p = path or settings_path()
     p.parent.mkdir(parents=True, exist_ok=True)
+    s.overlay = clean_overlay_prefs(s.overlay)
     data = asdict(s)
     data.pop("extra", None)
     tmp = p.with_suffix(".tmp")
@@ -322,3 +326,102 @@ def start_data_client(exe: Path, args: list[str]) -> None:
     rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", str(exe), params, str(exe.parent), 1)
     if rc <= 32:
         raise ClientError("The Albion Data Client was not started (administrator rights declined?).")
+
+
+# ---------------------------------------------------------------- overlay
+OVERLAY_DEFAULTS = {"enabled": True, "x": 40, "y": 140, "alpha": 0.88}
+# Process names of the game client (Steam and standalone launcher).
+GAME_PROCESSES = ("albion-online.exe", "albiononline.exe")
+
+
+def clean_overlay_prefs(raw: dict | None) -> dict:
+    """Only known keys with sane values end up in client.json."""
+    out = dict(OVERLAY_DEFAULTS)
+    raw = raw or {}
+    if "enabled" in raw:
+        out["enabled"] = bool(raw["enabled"])
+    for k in ("x", "y"):
+        try:
+            out[k] = max(-4000, min(10000, int(raw.get(k, out[k]))))
+        except (TypeError, ValueError):
+            pass
+    try:
+        out["alpha"] = max(0.3, min(1.0, float(raw.get("alpha", out["alpha"]))))
+    except (TypeError, ValueError):
+        pass
+    return out
+
+
+def overlay_url(s: ClientSettings, what: str) -> str:
+    """Overlay endpoints use the same key as the upload, so no second login is needed."""
+    if what not in ("summary", "events", "item"):
+        raise ValueError(what)
+    return f"{validate_server_url(s.server_url)}/api/overlay/{validate_ingest_key(s.ingest_key)}/{what}"
+
+
+def fetch_overlay_summary(s: ClientSettings, http_fn: HttpFn | None = None) -> dict:
+    call = http_fn or (lambda m, u, b, h: http(m, u, b, h))
+    code, body = call("GET", overlay_url(s, "summary"), None, {"Accept": "application/json"})
+    if code == 401:
+        raise ClientError("The server rejected the key. Ask the server owner for a new pairing link.")
+    if code == 404:
+        raise ClientError("This server has no overlay feed yet (update the server).")
+    if code != 200:
+        raise ClientError(f"The server answered HTTP {code}.")
+    return json.loads(body)
+
+
+def iter_sse(lines) -> "Iterator[dict]":
+    """Parses a text/event-stream (an iterable of bytes or str lines) into JSON events.
+
+    Comment lines (': ping') and unknown fields are ignored; events with broken JSON are skipped.
+    """
+    data: list[str] = []
+    for raw in lines:
+        line = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+        line = line.rstrip("\r\n")
+        if line == "":
+            if data:
+                try:
+                    obj = json.loads("\n".join(data))
+                    if isinstance(obj, dict):
+                        yield obj
+                except ValueError:
+                    pass
+                data = []
+            continue
+        if line.startswith(":"):
+            continue
+        name, _, value = line.partition(":")
+        if name == "data":
+            data.append(value[1:] if value.startswith(" ") else value)
+
+
+def open_event_stream(s: ClientSettings, timeout: float = 40):
+    """Opens the live event stream. The server sends a keep-alive every 15 s, so a read timeout
+    of 40 s means the connection is dead and the caller should reconnect."""
+    req = urllib.request.Request(overlay_url(s, "events"), headers={"User-Agent": USER_AGENT, "Accept": "text/event-stream"})
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise ClientError("The server rejected the key. Ask the server owner for a new pairing link.") from None
+        if e.code == 404:
+            raise ClientError("This server has no overlay feed yet (update the server).") from None
+        raise ClientError(f"The server answered HTTP {e.code}.") from None
+    except urllib.error.URLError as e:
+        raise ClientError(f"Cannot reach the server: {e.reason}") from None
+
+
+def silver(n: float | int | None) -> str:
+    """1234 -> '1,234', 123456 -> '123k', 1234567 -> '1.23m'."""
+    if n is None:
+        return "–"
+    n = float(n)
+    sign = "-" if n < 0 else ""
+    a = abs(n)
+    if a >= 1_000_000:
+        return f"{sign}{a / 1_000_000:.2f}m"
+    if a >= 100_000:
+        return f"{sign}{a / 1000:.0f}k"
+    return f"{sign}{a:,.0f}"

@@ -197,6 +197,34 @@ own pairing link; their choice is saved and wins over the built-in default.
 
 Script alternative: `client/windows/Start-LiveClient.bat` with `client.json` does the same steps.
 
+### In-game overlay (like Overwolf, without injection)
+
+Overwolf apps draw into the game by injecting a renderer into the game process. Albion's developers
+accept tools that only *look and analyse*, and anything touching the game process is what anti-cheat
+looks for. The overlay therefore copies what Overwolf apps feel like, not how they work:
+
+| Overwolf feature | Here |
+| --- | --- |
+| Drawn on top of the game | Borderless always-on-top window (`overlay_window.py`). Needs Albion in **windowed** or **borderless window** mode. |
+| Does not steal clicks | `WS_EX_TRANSPARENT` + `WS_EX_NOACTIVATE`: clicks go to the game, focus stays in the game. |
+| Only visible in game | Shown only while `Albion-Online.exe` is the foreground window. |
+| Hotkeys | `RegisterHotKey` (no keyboard hook): Ctrl+Shift+O show/hide, Ctrl+Shift+L unlock to move (position is saved). |
+| Game events | The server's event stream: opening an item in the market makes the Data Client upload its orders, the server answers with an item card. |
+
+Server side (`albion_flips/overlay.py`, routes in `server.py`), authorised with the ingest key the
+client already has (or `session` + dashboard cookie):
+
+* `GET /api/overlay/<key>/summary` – top 5 verified flips (with 7-day history), live-client status.
+* `GET /api/overlay/<key>/item?id=T4_BAG&q=1` – item card on demand.
+* `GET /api/overlay/<key>/events` – Server-Sent Events: a summary on connect and after every sweep,
+  an item card on every upload (the item with the most orders = the one you opened). Keep-alive every
+  15 s, at most 8 connections, a stalled overlay never slows down price ingest.
+
+The item card shows the visible price against the 7-day average (cheap < 85 %, expensive > 115 %),
+the best instant sale and the best sell order after tax and setup fee (sell orders capped at 110 % of
+the 7-day average), and matching flips. Enable it in the client ("Show the in-game overlay") or start
+`AlbionMarketPulseClient.exe --overlay`.
+
 ### Releases
 
 `.github/workflows/windows-client.yml` runs on every published GitHub release: tests, bakes the

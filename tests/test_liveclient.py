@@ -131,3 +131,52 @@ def test_install_only_when_checksum_matches(tmp_path: Path) -> None:
     with pytest.raises(lc.ClientError, match="NOT installed"):
         lc.install_data_client(tmp_path / "bad", lc.ReleaseAsset("0.1.61", "u", digest, len(gz)), tampered)
     assert not (tmp_path / "bad" / "albiondata-client.exe").exists()
+
+
+# ---------------------------------------------------------------- overlay
+def test_iter_sse_parses_events_and_skips_pings_and_garbage() -> None:
+    lines = [b"retry: 5000\n", b"\n", b": ping\n", b"\n", b"event: item\n", b'data: {"type":"item","item_id":"T4_BAG"}\n', b"\n",
+             b"data: {broken\n", b"\n", b'data: {"type":"summary"}\r\n', b"\r\n"]
+    assert [e["type"] for e in lc.iter_sse(lines)] == ["item", "summary"]
+
+
+def test_silver_format() -> None:
+    assert lc.silver(1234) == "1,234" and lc.silver(123456) == "123k" and lc.silver(1234567) == "1.23m"
+    assert lc.silver(-500) == "-500" and lc.silver(None) == "–"
+
+
+def test_overlay_prefs_are_sanitized(tmp_path: Path) -> None:
+    assert lc.clean_overlay_prefs({"x": "abc", "alpha": 9, "evil": 1}) == {"enabled": True, "x": 40, "y": 140, "alpha": 1.0}
+    s = lc.ClientSettings(server_url="https://pulse.example.com", ingest_key="k" * 24, overlay={"x": 300, "y": 50, "enabled": False})
+    p = lc.save_settings(s, tmp_path / "c.json")
+    back = lc.load_settings(p, defaults=lc.ClientSettings())
+    assert back.overlay == {"enabled": False, "x": 300, "y": 50, "alpha": 0.88}
+
+
+def test_overlay_url_uses_validated_key() -> None:
+    s = lc.ClientSettings(server_url="https://pulse.example.com/", ingest_key="k" * 24)
+    assert lc.overlay_url(s, "events") == "https://pulse.example.com/api/overlay/" + "k" * 24 + "/events"
+    with pytest.raises(ValueError):
+        lc.overlay_url(s, "../x")
+    with pytest.raises(lc.ClientError):
+        lc.overlay_url(lc.ClientSettings(server_url="http://pulse.example.com", ingest_key="k" * 24), "summary")
+
+
+def test_fetch_overlay_summary_errors() -> None:
+    s = lc.ClientSettings(server_url="https://pulse.example.com", ingest_key="k" * 24)
+    assert lc.fetch_overlay_summary(s, lambda m, u, b, h: (200, b'{"type":"summary","top":[]}'))["type"] == "summary"
+    with pytest.raises(lc.ClientError, match="rejected"):
+        lc.fetch_overlay_summary(s, lambda m, u, b, h: (401, b""))
+    with pytest.raises(lc.ClientError, match="no overlay"):
+        lc.fetch_overlay_summary(s, lambda m, u, b, h: (404, b""))
+
+
+def test_overlay_item_title() -> None:
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "client" / "windows"))
+    from overlay_window import item_title, tier_label
+
+    assert tier_label("T6_2H_BOW@1") == "T6.1" and tier_label("UNIQUE_X") == ""
+    assert item_title("Master's Bow", "T6_2H_BOW@1") == "Master's Bow T6.1"
+    assert item_title("T4 Bag", "T4_BAG") == "T4 Bag"
+    assert item_title("T4 Bag", "T4_BAG@2") == "T4 Bag T4.2"

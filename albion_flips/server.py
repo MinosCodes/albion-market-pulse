@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import hmac
 import json
+import queue
 import logging
 import secrets
 import signal
@@ -34,6 +35,7 @@ from albion_flips.analyzer import analyze_flips, parse_aodp_datetime
 from albion_flips.api import AodpClient
 from albion_flips.config import AppConfig, ConfigError, load_config, load_items
 from albion_flips.models import PriceRecord
+from albion_flips.overlay import OverlayHub, card_from_orders, item_card, summary as overlay_summary
 from albion_flips.ratelimit import RateLimiter
 from albion_flips.storage import MarketStore
 from albion_flips.web import FlipDataStore, FlipRequestHandler, start_web_server
@@ -117,7 +119,23 @@ button{margin-top:12px;width:100%;padding:10px;border:0;border-radius:8px;backgr
 <input type="password" name="k" placeholder="Access key" autofocus autocomplete="current-password"><button>Sign in</button>__MSG__</form></body></html>"""
 
 
-def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]]) -> type[FlipRequestHandler]:
+OVERLAY_KEEPALIVE_SECONDS = 15.0
+OVERLAY_MAX_STREAM_SECONDS = 3600.0  # the client reconnects; keeps dead connections from piling up
+
+
+def split_overlay_path(path: str) -> tuple[str, str] | None:
+    """'/api/overlay/<key>/summary' -> ('<key>', 'summary'). The key is the ingest key the
+    Windows client already has, so the overlay needs no extra login."""
+    if not path.startswith("/api/overlay/"):
+        return None
+    parts = path[len("/api/overlay/"):].split("/")
+    if len(parts) != 2 or not parts[0] or parts[1] not in ("summary", "events", "item"):
+        return None
+    return parts[0], parts[1]
+
+
+def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
+                 hub: OverlayHub | None = None, store: FlipDataStore | None = None) -> type[FlipRequestHandler]:
     class GuardedHandler(FlipRequestHandler):
         # ---- helpers
         def _ip(self) -> str:
@@ -176,11 +194,79 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]]) -> type[Fl
             self._json(401, {"error": "changes require login (open your login link)"})
             return True
 
+        # ---- overlay (in-game window of the Windows client)
+        def _overlay_ok(self, key: str) -> bool:
+            if key == "session":
+                return auth.session_ok(self.headers.get("Cookie"))
+            if auth.ingest_key:
+                return auth.same(key, auth.ingest_key)
+            return not auth.access_key  # nothing configured = local use
+
+        def _overlay(self, path: str) -> None:
+            parsed = split_overlay_path(path)
+            if parsed is None or hub is None or store is None:
+                return self._json(404, {"error": "unknown overlay route"})
+            key, what = parsed
+            ip = self._ip()
+            if auth.locked(ip):
+                return self._json(429, {"error": "too many invalid keys, wait 15 minutes"})
+            if not self._overlay_ok(key):
+                if key != "session":
+                    auth.failed(ip)
+                return self._json(401, {"error": "invalid overlay key"})
+            if what == "summary":
+                return self._json(200, overlay_summary(store))
+            if what == "item":
+                q = parse_qs(urlsplit(self.path).query)
+                item_id = q.get("id", [""])[0].strip()[:80]
+                if not item_id:
+                    return self._json(400, {"error": "id required"})
+                try:
+                    quality = max(1, min(5, int(q.get("q", ["1"])[0])))
+                except ValueError:
+                    quality = 1
+                return self._json(200, item_card(store, item_id, quality))
+            return self._overlay_stream()
+
+        def _overlay_stream(self) -> None:
+            sub = hub.subscribe()
+            if sub is None:
+                return self._json(503, {"error": "too many overlay connections"})
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Accel-Buffering", "no")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.close_connection = True
+
+                def emit(event: dict[str, Any]) -> None:
+                    data = json.dumps(event, separators=(",", ":"))
+                    self.wfile.write(f"event: {event.get('type', 'message')}\ndata: {data}\n\n".encode())
+                    self.wfile.flush()
+
+                self.wfile.write(b"retry: 5000\n\n")
+                emit(overlay_summary(store))
+                started = time.monotonic()
+                while time.monotonic() - started < OVERLAY_MAX_STREAM_SECONDS:
+                    try:
+                        emit(sub.get(timeout=OVERLAY_KEEPALIVE_SECONDS))
+                    except queue.Empty:
+                        self.wfile.write(b": ping\n\n")
+                        self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                pass  # overlay closed
+            finally:
+                hub.unsubscribe(sub)
+
         # ---- routes
         def do_GET(self) -> None:  # noqa: N802
             path = urlsplit(self.path).path
             if path == "/healthz":
                 return self._json(200, {"ok": True})
+            if path.startswith("/api/overlay/"):
+                return self._overlay(path)
             if path == "/login":
                 key = parse_qs(urlsplit(self.path).query).get("k", [""])[0]
                 if not key:
@@ -301,6 +387,7 @@ class Poller:
         self.last_changed = 0
         self._last_prune = 0.0
         self._wake = threading.Event()
+        self.on_cycle: Callable[[], Any] | None = None
 
     def request_sweep(self) -> None:
         """Dashboard 'refresh' button: start the next sweep now instead of running it in the web thread."""
@@ -332,6 +419,11 @@ class Poller:
         self.last_duration = time.monotonic() - t0
         logger.info("sweep %d: %d prices (%d changed), %d history records, %d flips in %.1fs",
                     self.cycles, len(prices), self.last_changed, len(history), len(flips), self.last_duration)
+        if self.on_cycle is not None:
+            try:
+                self.on_cycle()
+            except Exception:
+                logger.exception("on_cycle hook failed")
         return len(flips)
 
     def run(self, stop: threading.Event) -> None:
@@ -356,6 +448,22 @@ class Poller:
             "refresh_seconds": self.config.refresh_seconds, "db": self.market.stats(),
             "live_client_seconds_ago": round(time.time() - self.store.sniffer_last_timestamp) if self.store.sniffer_last_timestamp else None,
         }
+
+
+def attach_overlay(store: FlipDataStore, poller: "Poller | None" = None) -> OverlayHub:
+    """Live item cards on every upload of the live client, a fresh top list after every sweep."""
+    hub = OverlayHub()
+
+    def on_orders(aggregated: dict[tuple[str, str, int], dict[str, int]]) -> None:
+        if hub.subscribers:
+            card = card_from_orders(store, aggregated)
+            if card:
+                hub.publish(card)
+
+    store.order_observer = on_orders
+    if poller is not None:
+        poller.on_cycle = lambda: hub.subscribers and hub.publish(overlay_summary(store))
+    return hub
 
 
 # ---------------------------------------------------------------- entry point
@@ -444,7 +552,9 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("no service.access_key set: the dashboard has NO login. Run --init-keys --write.")
     auth = Auth(svc.access_key, svc.ingest_key, svc.public_read, svc.allow_local_ingest)
     store.set_refresh_callback(poller.request_sweep)
-    httpd = start_web_server(store, port=config.web_port, host=config.web_host, handler_cls=make_handler(auth, poller.status))
+    hub = attach_overlay(store, poller)
+    httpd = start_web_server(store, port=config.web_port, host=config.web_host,
+                             handler_cls=make_handler(auth, poller.status, hub, store))
 
     stop = threading.Event()
     def _stop(signum: int, _frame: Any) -> None:

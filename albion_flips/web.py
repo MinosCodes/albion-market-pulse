@@ -3499,6 +3499,8 @@ class FlipDataStore:
         # stores live-client prices persistently. Both stay None in desktop mode.
         self.reference: dict[tuple[str, str, int], Any] | None = None
         self.ingest_listener: Callable[[list[PriceRecord]], Any] | None = None
+        # Server mode: receives {(item_id, city, quality): {"min_sell", "max_buy", "n"}} per ingest.
+        self.order_observer: Callable[[dict[tuple[str, str, int], dict[str, int]]], Any] | None = None
         self._load_overrides()
 
     def _load_overrides(self) -> None:
@@ -3637,7 +3639,8 @@ class FlipDataStore:
 
             key = (item_id, city, quality)
             if key not in aggregated:
-                aggregated[key] = {"min_sell": 0, "max_buy": 0}
+                aggregated[key] = {"min_sell": 0, "max_buy": 0, "n": 0}
+            aggregated[key]["n"] += 1
 
             if auction_type in ("offer", "sell"):
                 current_min = aggregated[key]["min_sell"]
@@ -3760,6 +3763,13 @@ class FlipDataStore:
                 self.ingest_listener(updated_records)
             except Exception as e:
                 logger.error("Ingest listener failed: %s", e)
+
+        if self.order_observer is not None:
+            # Overlay: which items were just seen, with their best prices and order counts.
+            try:
+                self.order_observer({k: dict(v) for k, v in aggregated.items()})
+            except Exception as e:
+                logger.error("Order observer failed: %s", e)
 
         if sync:
             self.recompute()

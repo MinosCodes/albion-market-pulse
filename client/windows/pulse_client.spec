@@ -9,12 +9,12 @@ ROOT = os.path.dirname(os.path.dirname(HERE))          # repository root
 
 a = Analysis(
     [os.path.join(HERE, "pulse_client.py")],
-    pathex=[ROOT],
+    pathex=[ROOT, HERE],
     datas=[
         (os.path.join(HERE, "defaults.json"), "."),
         (os.path.join(ROOT, "assets", "icon.ico"), "."),
     ],
-    hiddenimports=["albion_flips.liveclient"],
+    hiddenimports=["albion_flips.liveclient", "overlay_window"],
     excludes=["requests", "rich", "pytest", "webview", "sqlite3"],
     noarchive=False,
 )
