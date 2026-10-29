@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 from urllib.parse import parse_qs, urlsplit
 
-from albion_flips import island, player
+from albion_flips import island, player, wiki, world
 from albion_flips.analyzer import analyze_flips, parse_aodp_datetime
 from albion_flips.api import AodpClient
 from albion_flips.config import AppConfig, ConfigError, load_config, load_items
@@ -306,6 +306,12 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
                 return True
             if path == "/api/island":
                 self._json(200, insights.island_view(q))
+                return True
+            if path in ("/api/world", "/api/route", "/api/tour", "/api/wiki"):
+                try:
+                    self._json(200, insights.world_get(path, q))
+                except ValueError as e:
+                    self._json(400, {"error": str(e)})
                 return True
             if path == "/api/profile":
                 view = insights.profile_view()
@@ -600,6 +606,39 @@ class Insights:
         player.island_locks(prof, payload)
         payload["profile_saved"] = self.profile.saved
         return payload
+
+    def world_get(self, path: str, q: dict[str, list[str]]) -> dict[str, Any]:
+        """Map data, routes, round trips and item wiki pages (ValueError -> 400)."""
+        def one(key: str, default: str = "") -> str:
+            return (q.get(key) or [default])[0][:200]
+
+        w = world.load_world()
+        prof = self.profile.get()
+        allow_red = one("red", "0" if prof["safe_only"] else "1") == "1"
+        try:
+            minutes = max(0.5, min(20.0, float(one("min", "2.5"))))
+        except ValueError:
+            minutes = 2.5
+        if path == "/api/world":
+            return dict(world.public_world(w), home=prof["home"], safe_only=prof["safe_only"])
+        if path == "/api/route":
+            a, b = world.resolve(w, one("from")), world.resolve(w, one("to"))
+            if a is None or b is None:
+                raise ValueError("unknown zone")
+            r = world.route(w, a, b, allow_red, minutes)
+            return {"from": a, "to": b, "allow_red": allow_red, "route": r}
+        if path == "/api/tour":
+            stops = [s for s in one("stops").split(",") if s.strip()]
+            t = world.tour(w, stops, allow_red, minutes, one("round", "1") == "1")
+            return {"allow_red": allow_red, "tour": t}
+        item_id = one("id").strip().upper()
+        if not ITEM_ID_RE.match(item_id):
+            raise ValueError("invalid item id")
+        try:
+            quality = max(1, min(5, int(one("q", "1"))))
+        except ValueError:
+            quality = 1
+        return wiki.item_page(item_id, quality, self.store, self.market, self.cities, home=prof["home"])
 
     def profile_view(self) -> dict[str, Any]:
         prof = self.profile.get()

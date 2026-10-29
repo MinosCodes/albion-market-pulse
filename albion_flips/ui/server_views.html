@@ -61,6 +61,25 @@
     @media (max-width: 1100px) { .sx-form-island { grid-template-columns: repeat(4, 1fr); } }
     @media (max-width: 600px) { .sx-form-island { grid-template-columns: 1fr 1fr; } }
     .sx-pill.warn { background: #713f12; color: #fde68a; }
+    .sx-zsel { flex: 1 1 200px; max-width: 280px; }
+    .sx-zsel label { display: block; font-size: 0.74rem; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
+    .sx-zsel .sx-input { width: 100%; }
+    .sx-mapwrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
+    @media (max-width: 900px) { .sx-mapwrap { grid-template-columns: 1fr; } }
+    .sx-map { position: relative; padding: 0; overflow: hidden; height: 640px; background: #0a0e17; touch-action: none; }
+    @media (max-width: 900px) { .sx-map { height: 460px; } }
+    .sx-map svg { width: 100%; height: 100%; display: block; cursor: grab; user-select: none; }
+    .sx-map svg.drag { cursor: grabbing; }
+    .sx-mapbtns { position: absolute; top: 10px; left: 10px; z-index: 2; display: flex; gap: 6px; align-items: center; background: rgba(10,14,23,.75); padding: 4px 6px; border-radius: 8px; }
+    .sx-maplegend { position: absolute; bottom: 8px; left: 10px; display: flex; gap: 10px; flex-wrap: wrap; font-size: 0.74rem; color: var(--text-muted); background: rgba(10,14,23,.75); padding: 4px 8px; border-radius: 8px; }
+    .sx-maplegend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
+    .sx-side .sx-card { margin-bottom: 14px; }
+    .sx-stops { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; font-size: 0.85rem; margin-bottom: 6px; }
+    .sx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .sx-chips a { font-size: 0.8rem; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--text); text-decoration: none; background: #0f131f; }
+    .sx-chips a:hover { border-color: var(--blue); }
+    .sx-facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.86rem; color: var(--text-muted); }
+    .sx-facts b { color: var(--text); font-weight: 600; }
     .sx-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
     .sx-box { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: #0f131f; min-width: 0; }
     .sx-box h3 { margin: 0 0 6px; font-size: 0.86rem; color: var(--text); }
@@ -169,6 +188,52 @@
       <div class="sx-tiers" id="px-tiers"></div>
       <div class="sx-row" style="margin-top:12px;"><button class="btn" id="px-save">Save profile</button><span class="sx-note" id="px-hint" style="margin:0;"></span></div>
     </div>
+  </div>
+
+  <div id="view-map" style="display: none;">
+    <div class="sx-card">
+      <div class="sx-row">
+        <div class="sx-zsel"><label for="mx-from">From</label><input id="mx-from" class="sx-input" list="mx-zones" placeholder="City or zone"></div>
+        <div class="sx-zsel"><label for="mx-to">To</label><input id="mx-to" class="sx-input" list="mx-zones" placeholder="City or zone"></div>
+        <datalist id="mx-zones"></datalist>
+        <button class="btn" id="mx-go" style="height:38px;align-self:flex-end;">Find route</button>
+        <label class="sx-muted" style="font-size:0.84rem;align-self:flex-end;padding-bottom:9px;"><input type="checkbox" id="mx-red"> Allow red zones</label>
+        <label class="sx-muted" style="font-size:0.84rem;align-self:flex-end;padding-bottom:4px;" title="Minutes to ride through one zone">Min / zone <input id="mx-min" class="sx-num-in" type="number" min="0.5" max="20" step="0.5" value="2.5"></label>
+      </div>
+      <div class="sx-note" id="mx-result"></div>
+    </div>
+    <div class="sx-mapwrap">
+      <div class="sx-card sx-map" id="mx-map">
+        <div class="sx-mapbtns"><button class="sx-btn-sm" data-z="in">+</button><button class="sx-btn-sm" data-z="out">−</button><button class="sx-btn-sm" data-z="fit" title="Show the Royal Continent">⌂</button><label class="sx-muted" style="font-size:0.78rem;"><input type="checkbox" id="mx-black" checked> Outlands</label></div>
+        <svg id="mx-svg" role="img" aria-label="World map of Albion"></svg>
+        <div class="sx-maplegend"><span><i style="background:#60a5fa"></i>blue</span><span><i style="background:#facc15"></i>yellow</span><span><i style="background:#f87171"></i>red</span><span><i style="background:#334155"></i>black</span><span><i style="background:#c084fc"></i>city</span></div>
+      </div>
+      <div class="sx-side">
+        <div class="sx-card" id="mx-zone"><div class="sx-muted" style="font-size:0.86rem;">Click a zone for its tier, resources and the way there from your home city. Drag to move, scroll or use +/− to zoom.</div></div>
+        <div class="sx-card">
+          <div class="sx-title" style="margin-bottom:6px;"><h2 style="font-size:1rem;">Trip planner</h2></div>
+          <div class="sx-muted" style="font-size:0.82rem;margin-bottom:6px;">Tick the cities to visit. The first one in the list that you tick is the start.</div>
+          <div id="mx-stops" class="sx-stops"></div>
+          <label class="sx-muted" style="font-size:0.82rem;"><input type="checkbox" id="mx-round" checked> Back to the start</label>
+          <div class="sx-note" id="mx-tour"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="view-wiki" style="display: none;">
+    <div class="sx-card">
+      <div class="sx-row">
+        <div class="sx-search">
+          <input id="wx-search" class="sx-input" placeholder="Search an item, e.g. &quot;wheat&quot;, &quot;4.1 planks&quot;, &quot;bag 6&quot;" autocomplete="off">
+          <div id="wx-results" class="sx-results"></div>
+        </div>
+        <select id="wx-quality" class="sx-select" title="Quality">
+          <option value="1">Normal</option><option value="2">Good</option><option value="3">Outstanding</option><option value="4">Excellent</option><option value="5">Masterpiece</option>
+        </select>
+      </div>
+    </div>
+    <div id="wx-main"><div class="sx-card"><div class="sx-empty">Search an item to see its prices in every city, its recipe with today's material cost, what it is used for and where to find it.</div></div></div>
   </div>
 
   <div id="view-island" style="display: none;">

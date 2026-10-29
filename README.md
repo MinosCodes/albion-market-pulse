@@ -52,6 +52,9 @@ dashboard is then up to date even while nobody is playing.
   zones near your home city (server mode).
 - **Your profile**: enter the tiers your character has unlocked and see what pays off for you right
   now, from refining to farming, on safe routes only if you like (server mode).
+- **Map, routes and wiki**: a world map drawn from the game data with the fastest safe route between
+  any two zones, a trip planner for several cities, and an item wiki with prices, recipe cost, uses
+  and where to find it (server mode).
 - **One-click copy** of the in-game search name, plus a personal watchlist.
 
 ### Trust the numbers

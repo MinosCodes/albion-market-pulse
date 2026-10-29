@@ -225,7 +225,7 @@ the best instant sale and the best sell order after tax and setup fee (sell orde
 the 7-day average), and matching flips. Enable it in the client ("Show the in-game overlay") or start
 `AlbionMarketPulseClient.exe --overlay`.
 
-### Price history, alerts, orders, island and profile (server only)
+### Price history, alerts, orders, island, profile, map and wiki (server only)
 
 The server adds two dashboard tabs that need its SQLite history (`albion_flips/insights.py`, pages in
 `albion_flips/ui/`, injected into the desktop page by `inject_server_ui`, so desktop mode is unchanged):
@@ -282,8 +282,26 @@ The server adds two dashboard tabs that need its SQLite history (`albion_flips/i
     pasture, crops per seed from premium) until the player changes a value there, marks rows that
     need a higher tier and can hide them.
 
+* **Map & Routes** (`albion_flips/world.py`, `data/world.json`): the map is drawn in the browser from
+  the zone data of the game files (position, exits, tier, colour, region, biome, faction, resource
+  nodes); no map images are shipped or loaded. Click a zone for its facts and the way there from
+  your home city. Routes are the fastest way through the zone graph: about 2.5 minutes per zone
+  (adjustable), yellow zones +10 %, red zones +50 % and only when allowed (default follows the
+  profile's "blue and yellow only"), black zones never. The trip planner finds the best order for up
+  to 7 cities, as a round trip or one way.
+* **Wiki** (`albion_flips/wiki.py`, `data/wiki.json`): one page per item with tier, category, weight,
+  item power and German name, current prices, 7-day average and sales per day per city, the recipe
+  with today's cheapest material prices and "instant sale minus materials", every recipe that uses
+  the item, and where it comes from (blue and yellow zones with nodes of that tier, refining bonus
+  city, growth and seed return of crops, offspring and favourite food of animals). Links like
+  `/#wiki=T4_PLANKS` open an item directly.
+
 | Route | Access |
 | --- | --- |
+| `GET /api/world` | read access (all zones for the map) |
+| `GET /api/route?from=&to=&red=0\|1&min=` | read access; `from`/`to` are zone ids, city or zone names |
+| `GET /api/tour?stops=a,b,c&red=0\|1&round=0\|1&min=` | read access, at most 7 stops |
+| `GET /api/wiki?id=&q=` | read access |
 | `GET /api/profile` | read access (`can_edit` tells the page whether this visitor may change it) |
 | `POST /api/profile` | login cookie |
 | `GET /api/island?home=&mode=instant\|order&seeds=&yield=&water=0\|1&animals=&afocus=0\|1&rates=&fish_rate=` | read access |
@@ -312,6 +330,8 @@ artifact. The .exe is not code-signed, so Windows SmartScreen shows a warning on
   login/public read/write protection/ingest key over real HTTP, proxy handling, one full sweep.
 * `tests/test_liveclient.py`: URL/key/pairing-link validation, settings and defaults, connection
   check against a real running server, release checksum rules, refusing a tampered download.
+* `tests/test_world_wiki.py`: routes (red and black zones, one-sided exits, tours, real map file)
+  and wiki pages (recipe cost, enchanted materials, used in, resource and farm facts).
 * `tests/test_insights.py`, `tests/test_orders.py`, `tests/test_island.py`, `tests/test_player.py`:
   price history, alerts, order tracker, the island calculator (seed return with and without
   watering, bait seed prices, favourite food, offspring, gathering zones) and the profile (validation,

@@ -21,7 +21,7 @@
   };
 
   // ------------------------------------------------------------ tabs
-  const MINE = ['profile', 'history', 'orders', 'island', 'alerts'];
+  const MINE = ['profile', 'history', 'orders', 'island', 'map', 'wiki', 'alerts'];
   const original = window.switchTab;
   window.switchTab = function (tab) {
     const mine = MINE.includes(tab);
@@ -42,6 +42,8 @@
     if (tab === 'orders') loadOrders();
     if (tab === 'island') loadIsland();
     if (tab === 'profile') loadProfile();
+    if (tab === 'map') loadWorld();
+    if (tab === 'wiki' && !wx.id) setTimeout(() => $('wx-search').focus(), 0);
     if (tab === 'history' && !hx.item) setTimeout(() => $('hx-search').focus(), 0);
     store.set('tab', mine ? tab : null);
   };
@@ -749,8 +751,317 @@
     ].join('');
   }
 
+  // ------------------------------------------------------------ map and routes
+  const KIND_COLOR = { blue: '#60a5fa', yellow: '#facc15', red: '#f87171', black: '#334155', city: '#c084fc' };
+  const KIND_NAME = { blue: 'blue zone', yellow: 'yellow zone', red: 'red zone', black: 'black zone (Outlands)', city: 'city' };
+  const BIOME_NAME = { FR: 'Forest', ST: 'Steppe', HL: 'Highland', MN: 'Mountain', SW: 'Swamp' };
+  const FACTION_NAME = { KPR: 'Keepers', HER: 'Heretics', MOR: 'Morgana', UND: 'Undead' };
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const mx = { w: null, vb: null, sel: null, route: null, home: 'Thetford', byName: {}, r: 10, drag: null };
+  const P = (z) => [z.pos[0] * 10, -z.pos[1] * 10];
+
+  async function loadWorld() {
+    if (mx.w) { applyView(); return; }
+    try {
+      const r = await fetch('/api/world', { credentials: 'same-origin' });
+      if (!r.ok) return;
+      mx.w = await r.json();
+      mx.home = mx.w.home;
+      $('mx-red').checked = !mx.w.safe_only;
+      const zs = Object.entries(mx.w.zones);
+      zs.forEach(([id, z]) => { mx.byName[z.name.toLowerCase()] = id; });
+      $('mx-zones').innerHTML = zs.map(([, z]) => z.name).sort().map((n) => `<option value="${esc(n)}">`).join('');
+      if (!$('mx-from').value) $('mx-from').value = mx.home;
+      $('mx-stops').innerHTML = Object.keys(mx.w.cities).sort((a, b) => (a === mx.home ? -1 : b === mx.home ? 1 : a.localeCompare(b)))
+        .map((c) => `<label><input type="checkbox" data-stop="${esc(c)}"${c === mx.home ? ' checked' : ''}> ${esc(c)}</label>`).join('');
+      // hexagon size from the typical distance between neighbouring zones
+      const d = [];
+      zs.forEach(([id, z]) => z.exits.forEach((e) => { const o = mx.w.zones[e]; if (o) { const a = P(z), b = P(o); d.push(Math.hypot(a[0] - b[0], a[1] - b[1])); } }));
+      d.sort((a, b) => a - b);
+      mx.r = (d[Math.floor(d.length / 2)] || 200) * 0.36;
+      drawMap();
+      fitMap(false);
+    } catch (e) { $('mx-zone').innerHTML = '<div class="sx-muted">Could not load the map.</div>'; }
+  }
+
+  function hexPoints(x, y, r) {
+    const pts = [];
+    for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; pts.push((x + r * Math.cos(a)).toFixed(0) + ',' + (y + r * Math.sin(a)).toFixed(0)); }
+    return pts.join(' ');
+  }
+
+  function drawMap() {
+    const w = mx.w, svg = $('mx-svg'), showBlack = $('mx-black').checked;
+    const visible = (z) => showBlack || z.kind !== 'black';
+    const routeSet = new Set(mx.route ? mx.route.path : []);
+    let lines = '', hexes = '', labels = '';
+    const seen = new Set();
+    for (const [id, z] of Object.entries(w.zones)) {
+      if (!visible(z)) continue;
+      const [x, y] = P(z);
+      for (const e of z.exits) {
+        const o = w.zones[e]; if (!o || !visible(o)) continue;
+        const key = id < e ? id + '|' + e : e + '|' + id; if (seen.has(key)) continue; seen.add(key);
+        const [x2, y2] = P(o);
+        lines += `<line x1="${x.toFixed(0)}" y1="${y.toFixed(0)}" x2="${x2.toFixed(0)}" y2="${y2.toFixed(0)}"/>`;
+      }
+      const cls = (routeSet.has(id) ? ' on-route' : '') + (mx.sel === id ? ' sel' : '');
+      hexes += `<polygon data-zone="${id}" class="zk-${z.kind}${cls}" points="${hexPoints(x, y, z.kind === 'city' ? mx.r * 1.15 : mx.r)}"><title>${esc(z.name)} · T${z.tier} ${KIND_NAME[z.kind] || ''}</title></polygon>`;
+      labels += `<text x="${x.toFixed(0)}" y="${(y + mx.r * 0.15).toFixed(0)}" class="${z.kind === 'city' ? 'city' : 'zn'}">${esc(z.kind === 'city' ? z.name : z.name)}</text>`;
+    }
+    let route = '';
+    if (mx.route) {
+      const pts = mx.route.path.map((id) => P(w.zones[id]).map((v) => v.toFixed(0)).join(',')).join(' ');
+      route = `<polyline class="route" points="${pts}"/>`;
+    }
+    const sw = (mx.r * 0.12).toFixed(1);
+    svg.innerHTML = `<style>
+      #mx-svg line { stroke: #475569; stroke-width: ${sw}; opacity: .55; }
+      #mx-svg polygon { stroke: #0a0e17; stroke-width: ${sw}; cursor: pointer; }
+      #mx-svg .zk-blue { fill: #1e3a5f; } #mx-svg .zk-yellow { fill: #5c4a12; } #mx-svg .zk-red { fill: #6b1d1d; }
+      #mx-svg .zk-black { fill: #1a202c; } #mx-svg .zk-city { fill: #6b21a8; }
+      #mx-svg polygon:hover { stroke: #e2e8f0; }
+      #mx-svg .on-route { stroke: #f59e0b; stroke-width: ${(mx.r * 0.2).toFixed(1)}; }
+      #mx-svg .sel { stroke: #ffffff; stroke-width: ${(mx.r * 0.25).toFixed(1)}; }
+      #mx-svg .route { fill: none; stroke: #f59e0b; stroke-width: ${(mx.r * 0.22).toFixed(1)}; stroke-linejoin: round; stroke-linecap: round; opacity: .9; pointer-events: none; }
+      #mx-svg text { text-anchor: middle; fill: #e2e8f0; pointer-events: none; font-family: inherit; }
+      #mx-svg text.city { font-size: ${(mx.r * 0.8).toFixed(0)}px; font-weight: 700; paint-order: stroke; stroke: #0a0e17; stroke-width: ${(mx.r * 0.18).toFixed(1)}; }
+      #mx-svg text.zn { font-size: ${(mx.r * 0.32).toFixed(0)}px; opacity: .85; display: none; }
+      #mx-svg.near text.zn { display: block; }
+    </style><g>${lines}</g><g>${hexes}</g>${route}<g>${labels}</g>`;
+    // the edge colour shows the zone type, the fill stays dark so the route stands out
+    svg.querySelectorAll('polygon').forEach((p) => {
+      const z = w.zones[p.dataset.zone];
+      if (!p.classList.contains('on-route') && !p.classList.contains('sel')) p.style.stroke = KIND_COLOR[z.kind];
+    });
+    applyView();
+  }
+
+  function applyView() {
+    if (!mx.vb) return;
+    const svg = $('mx-svg');
+    svg.setAttribute('viewBox', `${mx.vb.x} ${mx.vb.y} ${mx.vb.w} ${mx.vb.h}`);
+    svg.classList.toggle('near', mx.vb.w < mx.r * 28);
+  }
+
+  function fitMap(all) {
+    const w = mx.w; if (!w) return;
+    const zs = Object.values(w.zones).filter((z) => all || z.kind !== 'black');
+    const xs = zs.map((z) => P(z)[0]), ys = zs.map((z) => P(z)[1]);
+    const pad = mx.r * 2;
+    let x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
+    const box = $('mx-map'), ar = box.clientWidth / Math.max(1, box.clientHeight);
+    let wdt = x1 - x0, hgt = y1 - y0;
+    if (wdt / hgt < ar) { const nw = hgt * ar; x0 -= (nw - wdt) / 2; wdt = nw; } else { const nh = wdt / ar; y0 -= (nh - hgt) / 2; hgt = nh; }
+    mx.vb = { x: x0, y: y0, w: wdt, h: hgt };
+    applyView();
+  }
+
+  function zoomMap(f, cx, cy) {
+    const vb = mx.vb; if (!vb) return;
+    const nw = Math.max(mx.r * 8, Math.min(vb.w * f, mx.r * 2000)), k = nw / vb.w;
+    cx = cx == null ? vb.x + vb.w / 2 : cx; cy = cy == null ? vb.y + vb.h / 2 : cy;
+    mx.vb = { x: cx - (cx - vb.x) * k, y: cy - (cy - vb.y) * k, w: nw, h: vb.h * k };
+    applyView();
+  }
+
+  function svgPoint(evt) {
+    const r = $('mx-svg').getBoundingClientRect(), vb = mx.vb;
+    return [vb.x + (evt.clientX - r.left) / r.width * vb.w, vb.y + (evt.clientY - r.top) / r.height * vb.h];
+  }
+
+  function centerOn(id) {
+    const z = mx.w.zones[id]; if (!z || !mx.vb) return;
+    const [x, y] = P(z);
+    const w = Math.min(mx.vb.w, mx.r * 40), h = w * mx.vb.h / mx.vb.w;
+    mx.vb = { x: x - w / 2, y: y - h / 2, w, h };
+    applyView();
+  }
+
+  async function showZone(id) {
+    const w = mx.w, z = w.zones[id]; if (!z) return;
+    mx.sel = id; drawMap();
+    const res = Object.entries(z.resources || {}).map(([k, v]) => `${TYPE_NAME[k] || k} ${v.map(([t, n]) => 'T' + t + ' ×' + n).join(', ')}`).join('<br>');
+    const exits = z.exits.filter((e) => w.zones[e]).map((e) => `<a href="#" data-zone-link="${e}">${esc(w.zones[e].name)}</a>`).join('');
+    let way = '';
+    const homeId = w.cities[mx.home];
+    if (homeId && homeId !== id) {
+      const r = await fetch(`/api/route?from=${encodeURIComponent(homeId)}&to=${encodeURIComponent(id)}&red=${$('mx-red').checked ? 1 : 0}&min=${+$('mx-min').value || 2.5}`, { credentials: 'same-origin' });
+      const d = r.ok ? await r.json() : null;
+      way = d && d.route ? `From ${esc(mx.home)}: <b>${d.route.minutes} min</b>, ${d.route.zones} zones${kindsText(d.route.kinds)}`
+        : `<span class="sx-bad">Not reachable from ${esc(mx.home)}${$('mx-red').checked ? '' : ' without red zones'}.</span>`;
+    }
+    $('mx-zone').innerHTML = `<div class="sx-title" style="margin-bottom:6px;"><h2 style="font-size:1.05rem;">${esc(z.name)}</h2><span class="sx-pill" style="background:${KIND_COLOR[z.kind]};color:#0b0f1a;">T${z.tier} ${KIND_NAME[z.kind]}</span></div>`
+      + `<div class="sx-facts">${z.region ? `<span>Region <b>${esc(z.region)}</b></span>` : ''}${z.biome ? `<span>Biome <b>${BIOME_NAME[z.biome] || z.biome}</b></span>` : ''}${z.faction ? `<span>Faction <b>${FACTION_NAME[z.faction] || z.faction}</b></span>` : ''}</div>`
+      + `<div style="margin-top:8px;font-size:0.86rem;">${res ? '<b>Resource nodes</b><br>' + res : '<span class="sx-muted">No node counts for this zone.</span>'}</div>`
+      + (way ? `<div style="margin-top:8px;font-size:0.86rem;">${way}</div>` : '')
+      + `<div class="sx-row" style="margin-top:10px;"><button class="sx-btn-sm" data-route-to="${id}">Route here</button><button class="sx-btn-sm" data-route-from="${id}">Start here</button></div>`
+      + `<div style="margin-top:10px;font-size:0.8rem;" class="sx-muted">Exits</div><div class="sx-chips">${exits}</div>`;
+  }
+
+  function kindsText(k) {
+    const parts = Object.entries(k || {}).filter(([kind]) => kind !== 'city').map(([kind, n]) => `${n} ${kind}`);
+    return parts.length ? ` <span class="sx-muted">(${parts.join(', ')})</span>` : '';
+  }
+
+  function zoneRef(text) {
+    const t = (text || '').trim(); if (!t) return '';
+    return mx.byName[t.toLowerCase()] || t;
+  }
+
+  async function findRoute() {
+    const from = zoneRef($('mx-from').value), to = zoneRef($('mx-to').value);
+    if (!from || !to) { $('mx-result').textContent = 'Pick a start and a destination.'; return; }
+    const r = await fetch(`/api/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&red=${$('mx-red').checked ? 1 : 0}&min=${+$('mx-min').value || 2.5}`, { credentials: 'same-origin' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { $('mx-result').textContent = d.error === 'unknown zone' ? 'Unknown city or zone name.' : (d.error || 'Error'); return; }
+    mx.route = d.route;
+    if (!d.route) {
+      $('mx-result').innerHTML = `<span class="sx-bad">No way ${d.allow_red ? '' : 'without red zones '}between these two.</span>${d.allow_red ? '' : ' Tick "Allow red zones" to see the risky way.'}`;
+      drawMap(); return;
+    }
+    const names = d.route.path.map((id) => mx.w.zones[id].name);
+    $('mx-result').innerHTML = `<b>${d.route.minutes} min</b>, ${d.route.zones} zones${kindsText(d.route.kinds)}: ${names.map(esc).join(' → ')}`;
+    drawMap();
+  }
+
+  async function planTour() {
+    const stops = [...document.querySelectorAll('#mx-stops [data-stop]')].filter((c) => c.checked).map((c) => c.dataset.stop);
+    if (stops.length < 2) { $('mx-tour').textContent = 'Tick at least two cities.'; return; }
+    const q = `stops=${encodeURIComponent(stops.join(','))}&red=${$('mx-red').checked ? 1 : 0}&round=${$('mx-round').checked ? 1 : 0}&min=${+$('mx-min').value || 2.5}`;
+    const r = await fetch('/api/tour?' + q, { credentials: 'same-origin' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.tour) { $('mx-tour').innerHTML = `<span class="sx-bad">${esc(d.error || 'No way through all of them' + (d.allow_red ? '' : ' without red zones'))}.</span>`; return; }
+    const order = d.tour.order.map((id) => mx.w.zones[id].name);
+    $('mx-tour').innerHTML = `<b>${d.tour.minutes} min</b>: ${order.map(esc).join(' → ')}<br>` + d.tour.legs.map((l, i) => `${esc(order[i])} → ${esc(order[i + 1])}: ${l.minutes} min`).join('<br>');
+    mx.route = { path: d.tour.legs.flatMap((l, i) => (i ? l.path.slice(1) : l.path)) };
+    drawMap();
+  }
+
+  // ------------------------------------------------------------ wiki
+  const wx = { id: null, q: 1, data: null };
+  const CAT_NAME = { gear: 'Equipment', farm: 'Farming', raw: 'Raw resource', mount: 'Mount', refined: 'Refined resource', food: 'Food', fish: 'Fish', ingredient: 'Ingredient', potion: 'Potion', crop: 'Crop', herb: 'Herb', product: 'Animal product' };
+
+  window.openWiki = function (itemId, quality) {
+    wx.id = itemId; wx.q = quality || 1; $('wx-quality').value = String(wx.q);
+    $('wx-search').value = itemId;
+    window.switchTab('wiki');
+    loadWiki();
+  };
+
+  async function loadWiki() {
+    if (!wx.id) return;
+    try {
+      const r = await fetch(`/api/wiki?id=${encodeURIComponent(wx.id)}&q=${wx.q}`, { credentials: 'same-origin' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      wx.data = await r.json();
+      renderWiki();
+    } catch (e) { $('wx-main').innerHTML = `<div class="sx-card"><div class="sx-empty">Could not load the item (${esc(e.message)}).</div></div>`; }
+  }
+
+  function renderWiki() {
+    const d = wx.data; if (!d) return;
+    const link = (id, label) => `<a href="#" data-wiki="${esc(id)}" style="color:var(--text);">${esc(label || id)}</a>`;
+    const facts = [
+      d.tier ? `Tier <b>${d.tier}${d.enchant ? '.' + d.enchant : ''}</b>` : '',
+      d.category ? `<b>${CAT_NAME[d.category] || d.category}</b>${d.slot ? ' · ' + esc(d.slot) : ''}` : '',
+      d.weight != null ? `Weight <b>${d.weight} kg</b>` : '',
+      d.power ? `Item power <b>${d.power}</b>` : '',
+      d.nutrition ? `Nutrition <b>${d.nutrition}</b>` : '',
+      d.name_de ? `German <b>${esc(d.name_de)}</b>` : '',
+    ].filter(Boolean).map((f) => `<span>${f}</span>`).join('');
+    let h = `<div class="sx-card"><div class="sx-title"><h2>${esc(d.name)}</h2><code>${esc(d.item_id)}</code>${d.quality > 1 ? `<span class="sx-muted">${QUALITY[d.quality]}</span>` : ''}</div>`
+      + `<div class="sx-facts">${facts || '<span>No game data for this item, only prices.</span>'}</div>`
+      + `<div class="sx-row" style="margin-top:12px;"><button class="sx-btn-sm" data-hist="${esc(d.item_id)}">📈 Price history</button><button class="sx-btn-sm" data-alert="${esc(d.item_id)}">🔔 Price alert</button></div></div>`;
+
+    const best = d.best_sale;
+    h += `<div class="sx-card"><div class="sx-title"><h2>Prices now</h2><span class="sx-muted" style="font-size:0.84rem;">${best ? `Best instant sale: <b style="color:var(--text);">${silver(best.net_instant)}</b> after tax in ${esc(best.city)}` : 'No buy order at the moment.'}</span></div>`
+      + (d.prices.length ? `<div style="overflow-x:auto;"><table class="sx-table"><thead><tr><th>City</th><th class="num">Cheapest sell order</th><th class="num">Best buy order</th><th class="num">7-day average</th><th class="num">Sold / day</th><th>Updated</th></tr></thead><tbody>`
+        + d.prices.map((p) => `<tr><td>${esc(p.city)}</td><td class="num">${silver(p.sell_min)}</td><td class="num">${silver(p.buy_max)}</td><td class="num">${silver(p.avg7)}</td><td class="num">${p.per_day ? silver(p.per_day) : '–'}</td><td class="sx-muted">${ago(p.updated)}</td></tr>`).join('')
+        + '</tbody></table></div>' : '<div class="sx-empty" style="padding:20px;">No prices for this item and quality yet.</div>') + '</div>';
+
+    if (d.recipe) {
+      const rc = d.recipe;
+      h += `<div class="sx-card"><div class="sx-title"><h2>Recipe</h2><span class="sx-muted" style="font-size:0.84rem;">${rc.amount > 1 ? `makes ${rc.amount} · ` : ''}${rc.focus ? `focus cost ${silver(rc.focus)} when you craft with focus` : ''}</span></div>`
+        + `<table class="sx-table"><thead><tr><th>Material</th><th class="num">Count</th><th class="num">Cheapest</th><th>Where</th></tr></thead><tbody>`
+        + rc.materials.map((m) => `<tr><td>${link(m.id, m.name)}</td><td class="num">${m.count}</td><td class="num">${silver(m.price)}</td><td class="sx-muted">${esc(m.city || '–')}</td></tr>`).join('')
+        + `</tbody></table><div class="sx-facts" style="margin-top:10px;"><span>Material cost per item <b>${silver(rc.cost)}</b></span>${rc.profit_instant != null ? `<span>Instant sale minus materials <b class="${tone(rc.profit_instant)}">${signed(rc.profit_instant)}</b></span>` : ''}</div>`
+        + `<div class="sx-note">${esc(rc.note)}</div></div>`;
+    }
+    const f = d.found || {};
+    let found = '';
+    if (f.zones) found += f.zones.length ? `<div style="font-size:0.86rem;margin-bottom:6px;">Blue and yellow zones with T${d.tier} nodes:</div><div class="sx-chips">${f.zones.map((z) => `<a href="#" data-map-zone="${z.id}">${esc(z.name)} <span class="sx-muted">${z.region || ''} · ${z.kind} · ${z.nodes} nodes</span></a>`).join('')}</div>`
+      : `<div class="sx-muted" style="font-size:0.86rem;">No blue or yellow zone with node counts for this tier.</div>`;
+    if (f.refine_into) found += `<div class="sx-note">Refines into ${link(f.refine_into, f.refine_into_name || f.refine_into)}${f.refine_city ? `, with the city bonus in <b>${esc(f.refine_city)}</b>` : ''}.</div>`;
+    else if (f.refine_city) found += `<div class="sx-note">Refining bonus city: <b>${esc(f.refine_city)}</b>.</div>`;
+    if (f.farm) found += `<div class="sx-note">Grows in ${f.farm.grow_h} h. ${link(f.farm.seed, 'Seed')} comes back ${Math.round(f.farm.seed_chance * 100)} % of the time, ${Math.round(f.farm.seed_chance_watered * 100)} % when watered. Crop: ${link(f.farm.crop, f.farm.crop_name || f.farm.crop)}${f.farm.nutrition ? `, nutrition ${f.farm.nutrition} for animals` : ''}.</div>`;
+    if (f.animal) found += `<div class="sx-note">${link(f.animal.baby, 'Baby')} grows into ${link(f.animal.grown, 'the grown animal')} in ${f.animal.grow_h >= 48 ? Math.round(f.animal.grow_h / 24 * 10) / 10 + ' days' : f.animal.grow_h + ' h'}. Offspring chance ${Math.round(f.animal.offspring * 100)} %, ${Math.round(f.animal.offspring_focus * 100)} % with focus. Eats ${f.animal.food === 'plants' ? 'crops and herbs' : esc(f.animal.food)}${f.animal.favorite ? `, favourite ${link(f.animal.favorite, f.animal.favorite_name || f.animal.favorite)}` : ''}.</div>`;
+    if (f.fish) found += `<div class="sx-note">Caught in fishing spots of tier ${f.fish.tier} zones.</div>`;
+    if (found) h += `<div class="sx-card"><div class="sx-title"><h2>Where it comes from</h2></div>${found}</div>`;
+    if (d.used_in.length) h += `<div class="sx-card"><div class="sx-title"><h2>Used in</h2><span class="sx-muted" style="font-size:0.84rem;">${d.used_in_count} recipe${d.used_in_count === 1 ? '' : 's'}${d.used_in_count > d.used_in.length ? ', first ' + d.used_in.length + ' shown' : ''}</span></div><div class="sx-chips">${d.used_in.map((u) => `<a href="#" data-wiki="${esc(u.id)}">${esc(u.name)}${u.tier ? ` <span class="sx-muted">T${u.tier}</span>` : ''}</a>`).join('')}</div></div>`;
+    $('wx-main').innerHTML = h;
+    location.hash = 'wiki=' + encodeURIComponent(d.item_id);
+  }
+
   // ------------------------------------------------------------ wiring
   function init() {
+    // map
+    $('mx-go').addEventListener('click', findRoute);
+    ['mx-from', 'mx-to'].forEach((id) => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') findRoute(); }));
+    $('mx-black').addEventListener('change', () => { drawMap(); });
+    $('mx-red').addEventListener('change', () => { if (mx.route) findRoute(); });
+    $('mx-stops').addEventListener('change', planTour);
+    $('mx-round').addEventListener('change', planTour);
+    document.querySelector('.sx-mapbtns').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-z]'); if (!b) return;
+      if (b.dataset.z === 'in') zoomMap(0.7); else if (b.dataset.z === 'out') zoomMap(1.4); else fitMap(false);
+    });
+    const svg = $('mx-svg');
+    svg.addEventListener('wheel', (e) => { e.preventDefault(); const [x, y] = svgPoint(e); zoomMap(e.deltaY > 0 ? 1.18 : 0.85, x, y); }, { passive: false });
+    svg.addEventListener('pointerdown', (e) => { mx.drag = { x: e.clientX, y: e.clientY, vb: Object.assign({}, mx.vb), moved: false }; svg.setPointerCapture(e.pointerId); });
+    svg.addEventListener('pointermove', (e) => {
+      const d = mx.drag; if (!d || !mx.vb) return;
+      const r = svg.getBoundingClientRect(), dx = (e.clientX - d.x) / r.width * d.vb.w, dy = (e.clientY - d.y) / r.height * d.vb.h;
+      if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) > 4) { d.moved = true; svg.classList.add('drag'); }
+      if (d.moved) { mx.vb = Object.assign({}, d.vb, { x: d.vb.x - dx, y: d.vb.y - dy }); applyView(); }
+    });
+    svg.addEventListener('pointerup', (e) => {
+      const d = mx.drag; mx.drag = null; svg.classList.remove('drag');
+      if (d && !d.moved) {
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const p = el && el.closest && el.closest('[data-zone]');
+        if (p) showZone(p.dataset.zone);
+      }
+    });
+    $('view-map').addEventListener('click', (e) => {
+      const a = e.target.closest('[data-zone-link], [data-route-to], [data-route-from]'); if (!a) return;
+      e.preventDefault();
+      if (a.dataset.zoneLink) { showZone(a.dataset.zoneLink); centerOn(a.dataset.zoneLink); return; }
+      const name = mx.w.zones[a.dataset.routeTo || a.dataset.routeFrom].name;
+      if (a.dataset.routeTo) $('mx-to').value = name; else $('mx-from').value = name;
+      if ($('mx-from').value && $('mx-to').value) findRoute();
+    });
+    window.addEventListener('resize', () => { if (mx.vb && $('view-map').style.display === 'block') applyView(); });
+    // links like /#wiki=T4_PLANKS also work while the page is already open
+    window.addEventListener('hashchange', () => {
+      const h = decodeURIComponent(location.hash || '');
+      const w = /^#wiki=([A-Z0-9_@]+)$/.exec(h), hi = /^#history=([A-Z0-9_@]+?)(?:@q([1-5]))?$/.exec(h);
+      if (w && w[1] !== wx.id) window.openWiki(w[1], 1);
+      else if (hi && (!hx.item || hi[1] !== hx.item.id)) window.openPriceHistory(hi[1], hi[2] ? +hi[2] : 1);
+    });
+
+    // wiki
+    searchBox('wx-search', 'wx-results', (it) => { wx.id = it.id; loadWiki(); });
+    $('wx-quality').addEventListener('change', (e) => { wx.q = +e.target.value; loadWiki(); });
+    $('wx-main').addEventListener('click', (e) => {
+      const a = e.target.closest('[data-wiki], [data-hist], [data-alert], [data-map-zone]'); if (!a) return;
+      e.preventDefault();
+      if (a.dataset.wiki) { window.openWiki(a.dataset.wiki, 1); window.scrollTo(0, 0); }
+      else if (a.dataset.hist) window.openPriceHistory(a.dataset.hist, wx.q);
+      else if (a.dataset.alert) { window.switchTab('alerts'); prefillAlert({ id: a.dataset.alert, name: wx.data.name }, wx.q, '', wx.data.best_sale ? wx.data.best_sale.net_instant : null); }
+      else if (a.dataset.mapZone) { window.switchTab('map'); loadWorld().then(() => { showZone(a.dataset.mapZone); centerOn(a.dataset.mapZone); }); }
+    });
+
     $('px-save').addEventListener('click', saveProfile);
     $('view-profile').addEventListener('input', (e) => { if (e.target.closest('.sx-card') && e.target.id !== 'px-save') px.dirty = true; });
     $('view-profile').addEventListener('click', (e) => {
@@ -820,7 +1131,9 @@
     setInterval(loadAlerts, 20000);
 
     const m = /^#history=([A-Z0-9_@]+?)(?:@q([1-5]))?$/.exec(decodeURIComponent(location.hash || ''));
+    const mw = /^#wiki=([A-Z0-9_@]+)$/.exec(decodeURIComponent(location.hash || ''));
     if (m) window.openPriceHistory(m[1], m[2] ? +m[2] : 1);
+    else if (mw) window.openWiki(mw[1], 1);
     else if (store.get('tab', null)) window.switchTab(store.get('tab', null));
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
