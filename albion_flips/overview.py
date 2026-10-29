@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
-from albion_flips import player, world
+from albion_flips import player, wiki, world
 
 TREND_STEP_S = 300        # store a point at most every 5 minutes
 TREND_KEEP_S = 24 * 3600
@@ -31,6 +31,15 @@ TREND_AGO_S = 55 * 60
 CRAFT_ACTIVE_H = 0.5
 ISLAND_ACTIVE_H = 0.5
 MAX_ROWS = 150
+
+
+def focus_cost(item_id: str) -> float | None:
+    """Focus for one item from the game's recipe; each enchantment level doubles it (estimate)."""
+    base, _, ench = item_id.partition("@")
+    rec = wiki.load_wiki().get("recipes", {}).get(base.split("_LEVEL")[0])
+    if not rec or not rec.get("focus"):
+        return None
+    return rec["focus"] * 2 ** (int(ench) if ench.isdigit() else 0) / max(1, rec.get("amount", 1))
 
 
 def _travel_h(w: dict[str, Any], a: str, b: str, allow_red: bool) -> float | None:
@@ -41,9 +50,11 @@ def _travel_h(w: dict[str, Any], a: str, b: str, allow_red: bool) -> float | Non
 def build_entries(prof: dict[str, Any], flips: list[dict[str, Any]], blackmarket: list[dict[str, Any]],
                   crafting: list[dict[str, Any]], focus_crafting: list[dict[str, Any]],
                   island_payload: dict[str, Any] | None, refs: dict[tuple[str, str, int], Any] | None,
-                  share: float = 0.10, w: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+                  share: float = 0.10, w: dict[str, Any] | None = None,
+                  focus_of: Callable[[str], float | None] | None = None) -> list[dict[str, Any]]:
     """All candidates with ``mine`` (fits tiers and zone rule) and ``why_not`` set."""
     w = world.load_world() if w is None else w
+    focus_of = focus_cost if focus_of is None else focus_of
     refs = refs or {}
     safe = prof["safe_only"]
     capital = prof.get("capital", 2_000_000)
@@ -57,6 +68,8 @@ def build_entries(prof: dict[str, Any], flips: list[dict[str, Any]], blackmarket
         bm = b == "Black Market"
         trip = _travel_h(w, a, "Caerleon" if bm else b, not safe)
         why = None
+        if safe and (a in player.UNSAFE_CITIES or b in player.UNSAFE_CITIES):
+            trip = None  # buying in Caerleon also means getting there first
         if trip is None:
             why = "needs red zones"
             trip = _travel_h(w, a, "Caerleon" if bm else b, True) or 1.0
@@ -103,6 +116,13 @@ def build_entries(prof: dict[str, Any], flips: list[dict[str, Any]], blackmarket
         by_capital = cost > 0 and n * cost > capital
         if by_capital:
             n = capital / cost
+        by_focus, focus_each = False, 0.0
+        if focus:
+            focus_each = focus_of(iid) or 0.0
+            if focus_each <= 0:
+                continue  # without the focus cost we cannot say how many you can make
+            if n * focus_each > prof.get("focus_per_day", 10000):
+                n, by_focus, by_capital = prof.get("focus_per_day", 10000) / focus_each, True, False
         if n < 1:
             continue  # nobody buys it in quantity (or it costs more than you have): not a daily income
         tier = player._tier_of(iid)
@@ -116,11 +136,13 @@ def build_entries(prof: dict[str, Any], flips: list[dict[str, Any]], blackmarket
             "id": f"craft:{key}", "kind": "Refining" if kind == "refine" else "Crafting", "item_id": iid,
             "what": f"{name}{' with focus' if focus else ''} → {sell}", "tier": tier, "enchant": c.get("enchant", 0),
             "per_day": round(c["profit_per_item"] * n), "unit": round(c["profit_per_item"]), "active_h": CRAFT_ACTIVE_H,
-            "volume": round(vol), "why_not": why, "capital_limited": by_capital,
+            "volume": round(vol), "why_not": why, "capital_limited": by_capital, "focus_limited": by_focus,
             "steps": [f"Materials: {c.get('ingredients_desc') or 'see the recipe'} (about {round(c.get('effective_cost') or 0):,} per item after return rate).",
-                      f"{'Refine' if kind == 'refine' else 'Craft'} in {where}{' with focus' if focus else ''}.",
+                      f"{'Refine' if kind == 'refine' else 'Craft'} in {where}"
+                      + (f" with focus (about {round(focus_each):,} focus each)." if focus else "."),
                       f"Sell in {sell} for {round(c.get('sell_price') or 0):,}: {round(c['profit_per_item']):,} profit each, "
-                      f"about {round(n):,} a day" + (" (as many as your silver to invest pays for)." if by_capital
+                      f"about {round(n):,} a day" + (" (as many as your focus per day allows)." if by_focus
+                                                   else " (as many as your silver to invest pays for)." if by_capital
                                                    else f" ({round(share * 100)} % of {round(vol):,} traded).")],
         })
 
@@ -132,7 +154,9 @@ def build_entries(prof: dict[str, Any], flips: list[dict[str, Any]], blackmarket
         out.append({
             "id": f"crop:{r['crop']}", "kind": "Crops", "item_id": r["crop"], "what": f"Grow {r['name']} ({r['made_day']} a day)",
             "tier": r["tier"], "per_day": r["profit_day"], "unit": r["profit_per_seed"], "active_h": ISLAND_ACTIVE_H,
-            "volume": r.get("volume"), "why_not": f"needs T{r['locked']} {'herbs' if r['kind'] == 'herb' else 'crops'}" if r.get("locked") else None,
+            "volume": r.get("volume"),
+            "why_not": f"needs T{r['locked']} {'herbs' if r['kind'] == 'herb' else 'crops'}" if r.get("locked")
+            else "needs red zones" if safe and {r.get("seed_city"), r.get("sell_city")} & player.UNSAFE_CITIES else None,
             "steps": [f"Buy seeds ({r['seed_price']:,} in {r['seed_city']}) and plant them on your island.",
                       f"Harvest after {r['grow_h']} h; {round(r['seed_back'] * 100)} % of the seeds come back.",
                       f"Sell the crops in {r['sell_city']} for {r['crop_net']:,} each after tax."],
@@ -143,7 +167,9 @@ def build_entries(prof: dict[str, Any], flips: list[dict[str, Any]], blackmarket
         out.append({
             "id": f"animal:{r['baby']}", "kind": "Animals", "item_id": r["grown"], "what": f"Raise {r['grown_name']}",
             "tier": r["tier"], "per_day": r["profit_day"], "unit": r["profit"], "active_h": ISLAND_ACTIVE_H,
-            "volume": r.get("volume"), "why_not": f"needs T{r['locked']} animals" if r.get("locked") else None,
+            "volume": r.get("volume"),
+            "why_not": f"needs T{r['locked']} animals" if r.get("locked")
+            else "needs red zones" if safe and {r.get("baby_city"), r.get("sell_city")} & player.UNSAFE_CITIES else None,
             "steps": [f"Buy babies for {r['baby_price']:,} in {r['baby_city']} and put them on your pastures.",
                       f"Feed them ({r['food']['units'] if r.get('food') else '?'} × {r['food']['name'] if r.get('food') else 'food'}) for {r['grow_h']} h.",
                       f"Sell the grown animal in {r['sell_city']} for {r['grown_net']:,} after tax; {round(r['offspring'] * 100)} % chance of a new baby."],

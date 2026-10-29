@@ -80,6 +80,24 @@ def test_capital_limits_transport_and_crafting() -> None:
     assert "flip:T4_BAG:1:Thetford:Martlock" not in poor and "craft:T4_CLOTH:" not in poor and "crop:T3_WHEAT" in poor
 
 
+def test_focus_limit_and_caerleon_purchases() -> None:
+    p = _prof(refine={"CLOTH": 4}, focus_per_day=1000)
+    focus = [dict(CRAFT[0], item_id="T4_CLOTH")]
+    es = {e["id"]: e for e in overview.build_entries(p, [], [], [], focus, ISLAND, REFS, focus_of=lambda i: 50)}
+    cloth = es["craft:T4_CLOTH:f"]
+    assert cloth["focus_limited"] and cloth["per_day"] == 20 * 30  # 1,000 focus / 50 each
+    # unknown focus cost: no guess
+    assert not overview.build_entries(p, [], [], [], focus, {}, REFS, focus_of=lambda i: None)
+    assert overview.focus_cost("T4_PLANKS") and overview.focus_cost("T4_PLANKS_LEVEL1@1") == 2 * overview.focus_cost("T4_PLANKS")
+    # buying in Caerleon also needs red zones
+    fl = [dict(FLIPS[0], buy_city="Caerleon"), dict(BM[0], buy_city="Caerleon")]
+    es = overview.build_entries(_prof(), fl, [], [], [], {}, REFS)
+    assert es and all(e["why_not"] == "needs red zones" for e in es)
+    crop = dict(ISLAND["crops"][0], seed_city="Caerleon")
+    es = overview.build_entries(_prof(), [], [], [], [], {"crops": [crop]}, REFS)
+    assert es[0]["why_not"] == "needs red zones"
+
+
 def test_ranking_and_trend() -> None:
     p = _prof(refine={"CLOTH": 4})
     ov = overview.Overview()

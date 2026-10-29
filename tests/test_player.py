@@ -46,6 +46,7 @@ def test_island_query_and_locks() -> None:
 
 
 @pytest.mark.parametrize("item,kind", [("T4_PLANKS", ("refine", "PLANKS")), ("T5_METALBAR@1", ("refine", "METALBAR")),
+                                       ("T4_LEATHER_LEVEL2@2", ("refine", "LEATHER")),
                                        ("T5_MOUNT_ARMORED_HORSE", ("craft", "saddler")), ("T6_MEAL_STEW", ("craft", "cook")),
                                        ("T4_POTION_HEAL", ("craft", "alchemist")), ("T4_2H_BOW", ("craft", "gear"))])
 def test_craft_kind(item, kind) -> None:

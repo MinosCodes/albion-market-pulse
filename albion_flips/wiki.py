@@ -38,6 +38,8 @@ def load_wiki(path: Path | str | None = None) -> dict[str, Any]:
 def used_in_index(data: dict[str, Any]) -> dict[str, list[str]]:
     used: dict[str, list[str]] = {}
     for out, r in data.get("recipes", {}).items():
+        if out.startswith("UNIQUE_"):
+            continue  # game-master, event and vanity items nobody can craft
         for mat, _ in r["materials"]:
             used.setdefault(mat, []).append(out)
     return used
@@ -68,7 +70,8 @@ def item_page(item_id: str, quality: int, store: FlipDataStore, market: Any, cit
               data: dict[str, Any] | None = None, used: dict[str, list[str]] | None = None,
               home: str = "Thetford", now: float | None = None) -> dict[str, Any]:
     data = load_wiki() if data is None else data
-    used = (_USED or used_in_index(data)) if used is None else used
+    if used is None:
+        used = _USED if data is _DATA and _USED is not None else used_in_index(data)
     now = time.time() if now is None else now
     base, ench = _split(item_id)
     info = data["items"].get(base, {})

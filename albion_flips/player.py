@@ -137,7 +137,7 @@ def island_locks(p: dict[str, Any], payload: dict[str, Any]) -> None:
 
 def craft_kind(item_id: str) -> tuple[str, str]:
     """('refine', 'PLANKS') / ('craft', 'gear'|'saddler'|'cook'|'alchemist')."""
-    base = item_id.split("@")[0]
+    base = item_id.split("@")[0].split("_LEVEL")[0]  # T4_LEATHER_LEVEL2@2 is refined leather too
     for r in REFINE:
         if base.endswith("_" + r):
             return "refine", r
