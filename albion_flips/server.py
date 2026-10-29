@@ -34,11 +34,13 @@ from urllib.parse import parse_qs, urlsplit
 from albion_flips.analyzer import analyze_flips, parse_aodp_datetime
 from albion_flips.api import AodpClient
 from albion_flips.config import AppConfig, ConfigError, load_config, load_items
+from albion_flips.insights import (ITEM_ID_RE, AlertBook, history_payload, known_items, quotes_from_orders,
+                                   search_items, store_quotes)
 from albion_flips.models import PriceRecord
 from albion_flips.overlay import OverlayHub, card_from_orders, item_card, summary as overlay_summary
 from albion_flips.ratelimit import RateLimiter
 from albion_flips.storage import MarketStore
-from albion_flips.web import FlipDataStore, FlipRequestHandler, start_web_server
+from albion_flips.web import HTML_TEMPLATE, FlipDataStore, FlipRequestHandler, start_web_server
 
 logger = logging.getLogger("albion_flips.server")
 
@@ -135,7 +137,10 @@ def split_overlay_path(path: str) -> tuple[str, str] | None:
 
 
 def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
-                 hub: OverlayHub | None = None, store: FlipDataStore | None = None) -> type[FlipRequestHandler]:
+                 hub: OverlayHub | None = None, store: FlipDataStore | None = None,
+                 insights: "Insights | None" = None) -> type[FlipRequestHandler]:
+    page = inject_server_ui(HTML_TEMPLATE).encode("utf-8") if insights is not None else None
+
     class GuardedHandler(FlipRequestHandler):
         # ---- helpers
         def _ip(self) -> str:
@@ -260,6 +265,62 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
             finally:
                 hub.unsubscribe(sub)
 
+        # ---- price history, item search, alerts (server only)
+        def _read_json_body(self, limit: int = 8192) -> dict[str, Any]:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length > limit:
+                raise ValueError("body too large")
+            raw = self.rfile.read(length) if length else b"{}"
+            data = json.loads(raw.decode("utf-8") or "{}")
+            if not isinstance(data, dict):
+                raise ValueError("expected a JSON object")
+            return data
+
+        def _insights_get(self, path: str) -> bool:
+            if insights is None:
+                return False
+            q = parse_qs(urlsplit(self.path).query)
+            if path == "/api/items":
+                term = q.get("q", [""])[0][:60]
+                self._json(200, {"items": insights.search(term)})
+                return True
+            if path == "/api/history":
+                item_id = q.get("id", [""])[0].strip().upper()
+                if not ITEM_ID_RE.match(item_id):
+                    self._json(400, {"error": "invalid item id"})
+                    return True
+                try:
+                    quality = max(1, min(5, int(q.get("q", ["1"])[0])))
+                    days = int(q.get("days", ["30"])[0])
+                except ValueError:
+                    quality, days = 1, 30
+                self._json(200, history_payload(insights.market, insights.store, item_id, quality, days))
+                return True
+            if path == "/api/alerts":
+                snap = insights.alerts.snapshot()
+                snap["cities"] = list(insights.cities)
+                snap["can_edit"] = auth.session_ok(self.headers.get("Cookie"))
+                self._json(200, snap)
+                return True
+            return False
+
+        def _insights_post(self, path: str) -> bool:
+            if insights is None or path not in ("/api/alerts", "/api/alerts/delete"):
+                return False
+            if self._need_session():
+                return True
+            try:
+                body = self._read_json_body()
+                if path == "/api/alerts":
+                    rule = insights.alerts.add(AlertBook.validate(body, insights.cities))
+                    insights.check_now({(rule["item_id"], rule["quality"])})
+                    self._json(200, {"ok": True, "rule": rule})
+                else:
+                    self._json(200, {"ok": insights.alerts.remove(str(body.get("id", "")))})
+            except ValueError as e:
+                self._json(400, {"error": str(e)})
+            return True
+
         # ---- routes
         def do_GET(self) -> None:  # noqa: N802
             path = urlsplit(self.path).path
@@ -289,6 +350,10 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
                 return
             if path == "/api/server_status":
                 return self._json(200, status_fn())
+            if page is not None and path in ("/", "/index.html"):
+                return self._send(200, page, "text/html; charset=utf-8")
+            if self._insights_get(path):
+                return
             return super().do_GET()
 
         def do_HEAD(self) -> None:  # noqa: N802
@@ -333,6 +398,8 @@ def make_handler(auth: Auth, status_fn: Callable[[], dict[str, Any]],
                 self.path = clean
                 return super().do_POST()
 
+            if self._insights_post(path):
+                return
             # everything else changes state (fulfill, override, clear_overrides, refresh, refresh_item)
             if self._need_session():
                 return
@@ -450,20 +517,81 @@ class Poller:
         }
 
 
-def attach_overlay(store: FlipDataStore, poller: "Poller | None" = None) -> OverlayHub:
-    """Live item cards on every upload of the live client, a fresh top list after every sweep."""
+class Insights:
+    """Price history, item search and price alerts: the parts that need the SQLite history."""
+
+    def __init__(self, market: MarketStore, store: FlipDataStore, alerts: AlertBook,
+                 cities: Sequence[str], item_ids: Sequence[str] = (), hub: OverlayHub | None = None) -> None:
+        self.market, self.store, self.alerts, self.hub = market, store, alerts, hub
+        self.cities = list(dict.fromkeys(list(cities) + ["Black Market"]))
+        self.item_ids = list(item_ids)
+        self._index: list[str] = []
+        self._index_at = 0.0
+
+    def search(self, term: str) -> list[dict[str, Any]]:
+        if time.monotonic() - self._index_at > 300 or not self._index:
+            self._index, self._index_at = known_items(self.store, self.item_ids), time.monotonic()
+        return search_items(term, self._index)
+
+    def _fired(self, events: list[dict[str, Any]]) -> None:
+        for ev in events:
+            logger.info("price alert: %s %s %s at %s (target %s)", ev["item_id"], ev["kind"], ev["city"], ev["price"], ev["target"])
+            if self.hub is not None and self.hub.subscribers:
+                self.hub.publish(ev)
+
+    def check_now(self, keys: set[tuple[str, int]] | None = None) -> None:
+        if self.alerts.rules:
+            self._fired(self.alerts.check(store_quotes(self.store, keys)))
+
+    def on_orders(self, aggregated: dict[tuple[str, str, int], dict[str, int]]) -> None:
+        if self.alerts.rules:
+            self._fired(self.alerts.check(quotes_from_orders(aggregated)))
+
+
+def attach_overlay(store: FlipDataStore, poller: "Poller | None" = None, insights: Insights | None = None) -> OverlayHub:
+    """Live item cards on every upload of the live client, a fresh top list after every sweep,
+    and price alerts after both."""
     hub = OverlayHub()
+    if insights is not None:
+        insights.hub = hub
 
     def on_orders(aggregated: dict[tuple[str, str, int], dict[str, int]]) -> None:
+        if insights is not None:
+            insights.on_orders(aggregated)
         if hub.subscribers:
             card = card_from_orders(store, aggregated)
             if card:
                 hub.publish(card)
 
+    def on_cycle() -> None:
+        if insights is not None:
+            insights.check_now()
+        if hub.subscribers:
+            hub.publish(overlay_summary(store))
+
     store.order_observer = on_orders
     if poller is not None:
-        poller.on_cycle = lambda: hub.subscribers and hub.publish(overlay_summary(store))
+        poller.on_cycle = on_cycle
     return hub
+
+
+# ---------------------------------------------------------------- dashboard additions (server mode)
+SERVER_UI_DIR = Path(__file__).with_name("ui")
+
+
+def inject_server_ui(html: str) -> str:
+    """Adds the server-only tabs (price history, price alerts) to the desktop dashboard page."""
+    tabs = (SERVER_UI_DIR / "server_tabs.html").read_text(encoding="utf-8")
+    views = (SERVER_UI_DIR / "server_views.html").read_text(encoding="utf-8")
+    script = (SERVER_UI_DIR / "server_ui.js").read_text(encoding="utf-8")
+    marker_tabs = '<button id="tab-prices"'
+    marker_views = "<!-- VIEW 5: WATCHLIST -->"
+    if marker_tabs not in html or marker_views not in html or "</body>" not in html:
+        logger.warning("dashboard layout changed: server tabs not added")
+        return html
+    html = html.replace(marker_tabs, tabs + "\n    " + marker_tabs, 1)
+    html = html.replace(marker_views, views + "\n  " + marker_views, 1)
+    return html.replace("</body>", "<script>\n" + script + "\n</script>\n</body>", 1)
 
 
 # ---------------------------------------------------------------- entry point
@@ -552,9 +680,10 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("no service.access_key set: the dashboard has NO login. Run --init-keys --write.")
     auth = Auth(svc.access_key, svc.ingest_key, svc.public_read, svc.allow_local_ingest)
     store.set_refresh_callback(poller.request_sweep)
-    hub = attach_overlay(store, poller)
+    insights = Insights(market, store, AlertBook(data_dir / "alerts.json"), config.cities, item_ids)
+    hub = attach_overlay(store, poller, insights)
     httpd = start_web_server(store, port=config.web_port, host=config.web_host,
-                             handler_cls=make_handler(auth, poller.status, hub, store))
+                             handler_cls=make_handler(auth, poller.status, hub, store, insights))
 
     stop = threading.Event()
     def _stop(signum: int, _frame: Any) -> None:

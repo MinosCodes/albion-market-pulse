@@ -170,6 +170,39 @@ class MarketStore:
             out[(item_id, city, int(quality))] = Reference(avg7=avg7, avg30=avg30, vol7=vol7)
         return out
 
+    def daily_series(self, item_id: str, quality: int, since_day: int) -> dict[str, list[tuple[int, float, int]]]:
+        """Daily average price and traded count per city: {city: [(day, avg, count), ...]}."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT city, day, avg_price, item_count FROM daily WHERE item_id=? AND quality=? AND day>=? ORDER BY day",
+                (item_id, quality, since_day),
+            ).fetchall()
+        out: dict[str, list[tuple[int, float, int]]] = {}
+        for city, day, avg, cnt in rows:
+            out.setdefault(city, []).append((int(day), float(avg), int(cnt)))
+        return out
+
+    def sample_series(self, item_id: str, quality: int, since_ts: int) -> dict[str, list[tuple[int, int, int]]]:
+        """Order book changes per city: {city: [(ts, sell_min, buy_max), ...]} (kept 7 days)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT city, ts, sell_min, buy_max FROM samples WHERE item_id=? AND quality=? AND ts>=? ORDER BY ts",
+                (item_id, quality, since_ts),
+            ).fetchall()
+        out: dict[str, list[tuple[int, int, int]]] = {}
+        for city, ts, sell, buy in rows:
+            out.setdefault(city, []).append((int(ts), int(sell or 0), int(buy or 0)))
+        return out
+
+    def latest_for(self, item_id: str, quality: int) -> dict[str, tuple[int, int | None, int, int | None]]:
+        """{city: (sell_min, sell_ts, buy_max, buy_ts)} for one item."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT city, sell_min, sell_ts, buy_max, buy_ts FROM latest WHERE item_id=? AND quality=?",
+                (item_id, quality),
+            ).fetchall()
+        return {r[0]: (int(r[1] or 0), r[2], int(r[3] or 0), r[4]) for r in rows}
+
     def load_latest(self) -> list[PriceRecord]:
         """Last known prices, used to fill the dashboard right after a restart."""
         def iso(ts: int | None) -> str:

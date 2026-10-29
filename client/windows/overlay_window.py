@@ -59,6 +59,7 @@ VERDICT = {
 FONT = "Segoe UI"
 WIDTH = 320
 CARD_STALE_SECONDS = 180
+ALERT_SECONDS = 90
 
 
 def tier_label(item_id: str) -> str:
@@ -219,6 +220,8 @@ class OverlayWindow:
         self.summary: dict | None = None
         self.card: dict | None = None
         self.card_at = 0.0
+        self.alert: dict | None = None
+        self.alert_at = 0.0
         self._shown = False
         self._drag = (0, 0)
         self._closed = False
@@ -272,6 +275,8 @@ class OverlayWindow:
                         self.summary = val
                     elif val.get("type") == "item":
                         self.card, self.card_at = val, time.time()
+                    elif val.get("type") == "alert":
+                        self.alert, self.alert_at = val, time.time()
                     changed = True
                 elif kind == "status":
                     changed = changed or val != self.status
@@ -315,6 +320,9 @@ class OverlayWindow:
         if self.card and time.time() - self.card_at > CARD_STALE_SECONDS:
             self.card = None
             self.render()
+        if self.alert and time.time() - self.alert_at > ALERT_SECONDS:
+            self.alert = None
+            self.render()
         self.win.after(500, self._visibility)
 
     def _apply_visibility(self) -> None:
@@ -355,6 +363,17 @@ class OverlayWindow:
             ago = int(self.summary["live_client_seconds_ago"])
             info = "Sniffer aktiv" if ago < 180 else "live"
         self._label(head, info, "muted", 8).pack(side="right")
+
+        if self.alert:
+            a = self.alert
+            box = self.tk.Frame(self.frame, bg="#3a2a08", padx=8, pady=5)
+            box.pack(fill="x", pady=(6, 0))
+            bg = "#3a2a08"
+            name = item_title(a.get("item_name"), str(a.get("item_id")))
+            self._label(self._row(box, bg), f"Preisalarm: {name[:30]}", "warn", 9, True, bg=bg).pack(side="left")
+            cond = "≤" if a.get("kind") == "sell_below" else "≥"
+            self._label(self._row(box, bg), f"{a.get('city')}: {lc.silver(a.get('price'))}  (Ziel {cond} {lc.silver(a.get('target'))})",
+                        "text", 9, bg=bg).pack(side="left")
 
         if self.card:
             self._card(self.card)

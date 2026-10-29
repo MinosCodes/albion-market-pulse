@@ -1,0 +1,112 @@
+  <!-- SERVER VIEWS: PRICE HISTORY AND PRICE ALERTS (added by albion_flips.server) -->
+  <style>
+    .sx-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
+    .sx-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .sx-input, .sx-select { background: #0f131f; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 0.9rem; }
+    .sx-input:focus, .sx-select:focus { outline: none; border-color: var(--blue); }
+    .sx-search { position: relative; flex: 1 1 320px; max-width: 520px; }
+    .sx-search .sx-input { width: 100%; }
+    .sx-results { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); background: #121726; border: 1px solid var(--border); border-radius: 10px; max-height: 340px; overflow-y: auto; box-shadow: 0 12px 30px rgba(0,0,0,.45); display: none; }
+    .sx-results div { padding: 8px 12px; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; font-size: 0.88rem; }
+    .sx-results div:hover, .sx-results div.sel { background: #1d2a44; }
+    .sx-results small { color: var(--text-muted); font-family: ui-monospace, monospace; }
+    .sx-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .sx-seg button { background: #0f131f; color: var(--text-muted); border: 0; padding: 7px 12px; font: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+    .sx-seg button + button { border-left: 1px solid var(--border); }
+    .sx-seg button.on { background: var(--blue); color: #fff; }
+    .sx-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 2px 0 12px; }
+    .sx-title h2 { margin: 0; font-size: 1.15rem; color: var(--text); }
+    .sx-title code { color: var(--text-muted); font-size: 0.8rem; }
+    .sx-legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 2px; }
+    .sx-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: #0f131f; color: var(--text); font-size: 0.8rem; cursor: pointer; user-select: none; }
+    .sx-chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .sx-chip.off { opacity: .38; }
+    .sx-chart { position: relative; width: 100%; height: 340px; }
+    .sx-chart svg { width: 100%; height: 100%; display: block; }
+    .sx-tip { position: absolute; pointer-events: none; background: #0b0f1a; border: 1px solid #334155; border-radius: 8px; padding: 8px 10px; font-size: 0.8rem; min-width: 170px; display: none; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+    .sx-tip b { display: block; margin-bottom: 4px; color: var(--text); }
+    .sx-tip div { display: flex; justify-content: space-between; gap: 14px; color: var(--text-muted); }
+    .sx-tip span:last-child { color: var(--text); font-variant-numeric: tabular-nums; }
+    .sx-empty { color: var(--text-muted); text-align: center; padding: 48px 12px; font-size: 0.92rem; line-height: 1.6; }
+    .sx-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+    .sx-table th { text-align: left; color: var(--text-muted); font-weight: 600; font-size: 0.76rem; text-transform: uppercase; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    .sx-table td { padding: 9px 10px; border-bottom: 1px solid #1a2031; }
+    .sx-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .sx-good { color: #4ade80; } .sx-bad { color: #f87171; } .sx-muted { color: var(--text-muted); }
+    .sx-btn-sm { background: #1e293b; color: var(--text); border: 1px solid #334155; border-radius: 6px; padding: 4px 10px; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+    .sx-btn-sm:hover { background: #334155; }
+    .sx-btn-sm.danger:hover { background: #7f1d1d; border-color: #b91c1c; }
+    .sx-pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.74rem; font-weight: 700; }
+    .sx-pill.armed { background: #0c4a6e; color: #7dd3fc; } .sx-pill.fired { background: #713f12; color: #fde68a; }
+    .sx-form { display: grid; grid-template-columns: minmax(240px, 2fr) repeat(4, minmax(110px, 1fr)) auto; gap: 10px; align-items: end; }
+    .sx-form label { display: block; font-size: 0.74rem; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
+    .sx-form .sx-input, .sx-form .sx-select { width: 100%; }
+    @media (max-width: 900px) { .sx-form { grid-template-columns: 1fr 1fr; } .sx-form .sx-wide { grid-column: 1 / -1; } }
+    .sx-toast { position: fixed; right: 18px; bottom: 18px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+    .sx-toast div { background: #111827; border: 1px solid #f59e0b; border-left-width: 4px; color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 0.86rem; box-shadow: 0 10px 30px rgba(0,0,0,.5); max-width: 360px; }
+    .sx-note { font-size: 0.82rem; color: var(--text-muted); margin-top: 8px; line-height: 1.5; }
+  </style>
+
+  <div id="view-history" style="display: none;">
+    <div class="sx-card">
+      <div class="sx-row">
+        <div class="sx-search">
+          <input id="hx-search" class="sx-input" placeholder="Search an item, e.g. &quot;bag 4&quot;, &quot;6.1 bow&quot;, &quot;T5_PLANKS&quot;" autocomplete="off">
+          <div id="hx-results" class="sx-results"></div>
+        </div>
+        <select id="hx-quality" class="sx-select" title="Quality">
+          <option value="1">Normal</option><option value="2">Good</option><option value="3">Outstanding</option><option value="4">Excellent</option><option value="5">Masterpiece</option>
+        </select>
+        <div class="sx-seg" id="hx-days">
+          <button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="120">120 days</button>
+        </div>
+        <div class="sx-seg" id="hx-mode">
+          <button data-m="daily" class="on" title="Average price of real trades per day (AODP history)">Trades / day</button>
+          <button data-m="orders" title="Cheapest sell order and best buy order over the last 7 days">Order book</button>
+        </div>
+      </div>
+    </div>
+    <div class="sx-card" id="hx-main">
+      <div class="sx-empty">Search an item to see its price over time in every city.<br>
+        <span style="font-size:0.84rem;">Daily trade prices come from the Albion Data Project and are kept by this server for 120 days.</span></div>
+    </div>
+  </div>
+
+  <div id="view-alerts" style="display: none;">
+    <div class="sx-card">
+      <div class="sx-title"><h2>New price alert</h2><span class="sx-muted" style="font-size:0.84rem;">Checked after every market sweep and every live upload from your PC.</span></div>
+      <div class="sx-form">
+        <div class="sx-wide">
+          <label for="ax-search">Item</label>
+          <div class="sx-search" style="max-width:none;">
+            <input id="ax-search" class="sx-input" placeholder="Search an item" autocomplete="off">
+            <div id="ax-results" class="sx-results"></div>
+          </div>
+        </div>
+        <div><label for="ax-quality">Quality</label>
+          <select id="ax-quality" class="sx-select"><option value="1">Normal</option><option value="2">Good</option><option value="3">Outstanding</option><option value="4">Excellent</option><option value="5">Masterpiece</option></select></div>
+        <div><label for="ax-kind">When</label>
+          <select id="ax-kind" class="sx-select"><option value="sell_below" title="Someone sells at or below your price">Sell order ≤</option><option value="buy_above" title="Someone buys at or above your price">Buy order ≥</option></select></div>
+        <div><label for="ax-price">Price (silver)</label><input id="ax-price" class="sx-input" type="number" min="1" step="1" placeholder="e.g. 12000"></div>
+        <div><label for="ax-city">City</label><select id="ax-city" class="sx-select"><option value="">Any city</option></select></div>
+        <div><button class="btn" id="ax-add" style="height:38px;">Add alert</button></div>
+      </div>
+      <div class="sx-note" id="ax-hint"></div>
+    </div>
+    <div class="sx-card">
+      <div class="sx-title"><h2>Your alerts</h2>
+        <button class="sx-btn-sm" id="ax-notify" style="margin-left:auto;">Enable desktop notifications</button></div>
+      <table class="sx-table">
+        <thead><tr><th>Item</th><th>Condition</th><th>City</th><th>Status</th><th class="num">Fired</th><th>Last fired</th><th></th></tr></thead>
+        <tbody id="ax-rules"><tr><td colspan="7" class="sx-empty" style="padding:28px;">Loading...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="sx-card">
+      <div class="sx-title"><h2>Recent alerts</h2></div>
+      <table class="sx-table">
+        <thead><tr><th>Time</th><th>Item</th><th>City</th><th class="num">Price</th><th class="num">Your target</th></tr></thead>
+        <tbody id="ax-events"><tr><td colspan="5" class="sx-empty" style="padding:28px;">No alert has fired yet.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="sx-toast" id="sx-toast"></div>

@@ -41,6 +41,10 @@ dashboard is then up to date even while nobody is playing.
 - **Crafting, focus crafting and refining** with city return-rate bonuses and station fees.
 - **Enchanting** with exact rune, soul and relic counts for every item slot and a batch simulator.
 - **Transport planning**: silver per kg and full-trip profit for your mount, from T3 ox to grizzly.
+- **Price history** for any item: daily trade prices per city for up to 120 days, and the order book
+  of the last 7 days (server mode).
+- **Price alerts**: get a desktop notification and an in-game banner when an item drops below or a
+  buy order rises above your price (server mode).
 - **One-click copy** of the in-game search name, plus a personal watchlist.
 
 ### Trust the numbers
@@ -73,7 +77,7 @@ dashboard is then up to date even while nobody is playing.
 | --- | --- | --- |
 | Where | your PC, native window or `localhost` | any Debian/Ubuntu box, behind HTTPS |
 | Prices | while the app is open | 24/7, rate-limited to AODP's fair-use limits |
-| History | AODP's window | own SQLite history (120 days) |
+| History | AODP's window | own SQLite history (120 days), price charts and alerts |
 | Access | only you | login link, optional read-only sharing |
 | Live client and overlay | local Data Client | `AlbionMarketPulseClient.exe` on any PC |
 

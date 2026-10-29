@@ -225,6 +225,29 @@ the best instant sale and the best sell order after tax and setup fee (sell orde
 the 7-day average), and matching flips. Enable it in the client ("Show the in-game overlay") or start
 `AlbionMarketPulseClient.exe --overlay`.
 
+### Price history and price alerts (server only)
+
+The server adds two dashboard tabs that need its SQLite history (`albion_flips/insights.py`, pages in
+`albion_flips/ui/`, injected into the desktop page by `inject_server_ui`, so desktop mode is unchanged):
+
+* **Price History**: search an item by name, id, tier or enchantment (`bag 4`, `6.1 bow`, `T5_PLANKS`).
+  *Trades / day* draws the daily average of real trades per city for 7, 30 or 120 days, with traded
+  volume as bars. *Order book* draws the cheapest sell order and the best buy order over the last 7
+  days. A table below compares current prices, the 7-day average and sales per day per city. Links like
+  `/#history=T4_BAG` open an item directly.
+* **Price Alerts**: "sell order ≤ price" or "buy order ≥ price", for one city or any city. Checked
+  after every sweep and every live upload. A rule fires once and only fires again after the price has
+  moved back, so a price that stays low does not ring every few minutes. Fired alerts appear as a
+  toast and desktop notification in the dashboard and as a banner in the in-game overlay. Stored in
+  `<data_dir>/alerts.json`, at most 100 rules.
+
+| Route | Access |
+| --- | --- |
+| `GET /api/items?q=` | read access |
+| `GET /api/history?id=&q=&days=7\|30\|120` | read access |
+| `GET /api/alerts` | read access (`can_edit` tells the page whether this visitor may change them) |
+| `POST /api/alerts`, `POST /api/alerts/delete` | login cookie |
+
 ### Releases
 
 `.github/workflows/windows-client.yml` runs on every published GitHub release: tests, bakes the
