@@ -77,6 +77,12 @@ class AppConfig:
     sniffer_auto_download: bool = True
     sniffer_hide_window: bool = True
     sniffer_share_with_aodp: bool = True
+    # Realistic prices (see pricecheck.py): live quotes checked against the 7-day average.
+    robust_prices: bool = True
+    bait_floor: float = 0.85
+    bait_replace: float = 0.95
+    sell_cap: float = 1.10
+    sell_cap_cross: float = 1.25
 
     @property
     def active_tax_rate(self) -> float:
@@ -116,6 +122,10 @@ class AppConfig:
             raise ConfigError("refresh_seconds must be positive")
         if self.top_n <= 0:
             raise ConfigError("top_n must be positive")
+        if not 0 < self.bait_floor <= 1 or not 0 < self.bait_replace <= 1:
+            raise ConfigError("price_check.bait_floor and bait_replace must be between 0 and 1")
+        if self.sell_cap < 1 or self.sell_cap_cross < 1:
+            raise ConfigError("price_check.sell_cap and sell_cap_cross must be at least 1")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AppConfig:
@@ -123,6 +133,7 @@ class AppConfig:
         web_enabled = bool(web_dict.get("enabled", False))
         web_port = int(web_dict.get("port", 8765))
         sniffer_dict = data.get("sniffer", {})
+        check = data.get("price_check", {})
 
         server = str(data.get("server", "europe")).strip().lower()
         server = SERVER_ALIASES.get(server, server)
@@ -173,6 +184,11 @@ class AppConfig:
             sniffer_auto_download=bool(sniffer_dict.get("auto_download", True)),
             sniffer_hide_window=bool(sniffer_dict.get("hide_window", True)),
             sniffer_share_with_aodp=bool(sniffer_dict.get("share_with_aodp", True)),
+            robust_prices=bool(check.get("enabled", True)),
+            bait_floor=float(check.get("bait_floor", 0.85)),
+            bait_replace=float(check.get("bait_replace", 0.95)),
+            sell_cap=float(check.get("sell_cap", 1.10)),
+            sell_cap_cross=float(check.get("sell_cap_cross", 1.25)),
         )
         cfg.validate()
         return cfg

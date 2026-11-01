@@ -12,6 +12,7 @@ from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import Any, Callable, Sequence
 
+from albion_flips.pricecheck import PriceCheck
 from albion_flips.analyzer import MAX_QUALITY_ROLLS, analyze_crafting, analyze_enchanting, analyze_flips, calculate_age_minutes, quality_chances, calculate_deal_score, compute_daily_volume, deduplicate_prices
 from albion_flips.config import AppConfig
 from albion_flips.models import FlipOpportunity, HistoryPoint, HistoryRecord, PriceRecord
@@ -595,6 +596,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       color: #ffffff !important;
       box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
     }
+    .price-note { display:block; font-size:0.72rem; font-weight:400; color:#fbbf24; cursor:help; white-space:nowrap; }
+    .price-note.unverified { color:#94a3b8; }
     .btn-edit-price {
       background: transparent;
       border: none;
@@ -1027,6 +1030,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </select>
       </div>
 
+      <button id="btn-checked-only" class="pill-btn active" onclick="toggleCheckedOnly()" title="Hide deals whose sale price could not be checked: the item has not sold anywhere in the last 7 days, so its listing is only an asking price">✓ Checked Prices Only</button>
       <button id="btn-sniffer-only" class="pill-btn" onclick="toggleSnifferOnly()" title="Only profitable deals that use prices captured by your sniffer in the last hour, best profit first">📡 Sniffer Scans Only</button>
       <button class="btn btn-secondary" onclick="resetFilters()">Reset Filters</button>
     </div>
@@ -1436,6 +1440,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let enchantDemandFilter = 'all';
     let liveSnifferEventsData = [];
     let snifferOnly = false;
+    // Hide deals with unverified prices (no sales history anywhere); remembered per browser.
+    let checkedOnly = true;
+    try { checkedOnly = localStorage.getItem('checkedOnly') !== '0'; } catch (e) {}
     let zoneWarningShown = false;
     let qualityRolls = 1;
     try { qualityRolls = Math.min(4, Math.max(1, parseInt(localStorage.getItem('albion_quality_rolls') || '1'))); } catch (e) {}
@@ -1758,6 +1765,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }
     }
 
+    // Small line under a price that the price check changed or could not verify (pricecheck.py).
+    function priceNote(reason, live, shown, avg7) {
+      const n = v => Math.round(Number(v) || 0).toLocaleString();
+      if (reason === 'sell_cap' || reason === 'sell_cap_cross') {
+        const where = reason === 'sell_cap' ? 'in this city' : 'in other cities (no sales here)';
+        return `<small class="price-note" title="Listed at ${n(live)}, but it really sold for about ${n(avg7)} ${where} over the last 7 days. Counted at ${n(shown)}.">listed ${n(live)} · 7d avg ${n(avg7)}</small>`;
+      }
+      if (reason === 'bait' || reason === 'inverted_book') {
+        const why = reason === 'bait' ? 'far below what it sold for over the last 7 days (bait or already bought)' : 'contradicts the buy orders seen at the same time (one of them is stale)';
+        return `<small class="price-note" title="The cheapest listing of ${n(live)} is ${why}. Counted at ${n(shown)}.">listed ${n(live)} · not trusted</small>`;
+      }
+      if (reason === 'no_history') {
+        return `<small class="price-note unverified" title="No sales of this item in the last 7 days anywhere: the listing is only an asking price and could not be checked.">⚠ no sales history</small>`;
+      }
+      return '';
+    }
+
     function renderAgeCell(f, isBm = false) {
       if (f.is_live_sniffer || (f.sniffer_age_seconds !== undefined && f.sniffer_age_seconds !== null && f.sniffer_age_seconds < 180)) {
         const s = (f.sniffer_age_seconds !== undefined && f.sniffer_age_seconds !== null) ? f.sniffer_age_seconds : 0;
@@ -1922,6 +1946,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       currentPage = 1;
       renderCurrentView();
     }
+
+    function updateCheckedButton() {
+      const btn = document.getElementById('btn-checked-only');
+      if (!btn) return;
+      btn.classList.toggle('active', checkedOnly);
+      btn.textContent = checkedOnly ? '✓ Checked Prices Only' : '❔ Showing Unverified Prices';
+    }
+
+    function toggleCheckedOnly() {
+      checkedOnly = !checkedOnly;
+      try { localStorage.setItem('checkedOnly', checkedOnly ? '1' : '0'); } catch (e) {}
+      updateCheckedButton();
+      currentPage = 1;
+      renderCurrentView();
+    }
+    document.addEventListener('DOMContentLoaded', updateCheckedButton);
 
     function toggleSnifferOnly() {
       snifferOnly = !snifferOnly;
@@ -2099,6 +2139,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (!item.is_live_sniffer) return false;
         if (type !== 'price' && !(Number(item.profit_per_item) > 0)) return false;
       }
+      if (checkedOnly && type !== 'price' && item.price_verified === false) return false;
       if (fTier !== 'all' && Number(item.tier) !== Number(fTier)) return false;
       if (fEnchant !== 'all' && Number(item.enchant) !== Number(fEnchant)) return false;
       if (type !== 'crafting' && fQuality !== 'all' && Number(item.quality || 1) !== Number(fQuality)) return false;
@@ -2284,10 +2325,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td>${tierBadge} ${qBadge}</td>
             <td>${f.buy_city || '-'}</td>
             <td>${f.sell_city || '-'}</td>
-            <td class="num">${buyP.toLocaleString()}</td>
+            <td class="num">${buyP.toLocaleString()}${priceNote(f.buy_check, f.live_buy_price, buyP, null)}</td>
             <td class="num">
               ${sellP.toLocaleString()}
-              <button class="btn-edit-price" onclick="promptOverridePrice('${f.item_id}', '${f.sell_city}', ${f.quality || 1}, ${sellP})" title="Overwrite price if different in-game">✏️</button>
+              <button class="btn-edit-price" onclick="promptOverridePrice('${f.item_id}', '${f.sell_city}', ${f.quality || 1}, ${f.live_sell_price || sellP})" title="Overwrite price if different in-game">✏️</button>
+              ${priceNote(f.sell_check, f.live_sell_price, sellP, f.sell_avg7)}
             </td>
             <td>${exitBadge}</td>
             <td class="num profit-val">+${Math.round(profit).toLocaleString()}</td>
@@ -2434,7 +2476,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td>${renderItemCell(f.item_id, f.item_name, f.quality)}</td>
             <td>${tierBadge} ${qBadge} ${newArrivalBadge}</td>
             <td><strong>${f.buy_city || '-'}</strong></td>
-            <td class="num">${buyP.toLocaleString()}</td>
+            <td class="num">${buyP.toLocaleString()}${priceNote(f.buy_check, f.live_buy_price, buyP, null)}</td>
             <td class="num" style="color: #60a5fa; font-weight: 600;">
               ${sellP.toLocaleString()}
               <button class="btn-edit-price" onclick="promptOverridePrice('${f.item_id}', '${f.sell_city || 'Black Market'}', ${f.quality || 1}, ${sellP})" title="Overwrite price if lower/different in-game">✏️</button>
@@ -2523,7 +2565,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const opt = (c.city_options || []).find(o => o.city === city);
       if (!opt) return null;
       const ingredients = (c.ingredients || []).map((ing, i) => ({
-        ...ing, unit_price: opt.prices[i], city: opt.cities[i],
+        ...ing, unit_price: opt.prices[i], city: opt.cities[i], live_price: opt.prices[i], price_check: '',
         is_live_sniffer: !!(opt.sniffed && opt.sniffed[i]), sniffer_age_seconds: null,
       }));
       return {
@@ -2604,7 +2646,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <div style="font-size:0.74rem; color:${c.daily_volume == null ? '#64748b' : (c.daily_volume >= 5 ? '#4ade80' : (c.daily_volume >= 1 ? '#fbbf24' : '#f87171'))};">${c.daily_volume == null ? 'no sales data' : '~' + c.daily_volume.toLocaleString() + ' sold/day'}</div>
             </td>
             <td class="num">${c.sell_city ? Math.round(c.sell_price).toLocaleString() : '<span style="color:#64748b;">no Normal buyer</span>'}
-              ${c.sell_city ? `<br><small style="color:#64748b;">${c.sell_instant ? 'instant sell' : 'sell order'}</small>` : ''}</td>
+              ${c.sell_city ? `<br><small style="color:#64748b;">${c.sell_instant ? 'instant sell' : 'sell order'}</small>` : ''}
+              ${c.sell_city ? priceNote(c.sell_check, c.live_sell_price, c.sell_price, c.sell_avg7) : ''}</td>
             <td class="num ${netProfit >= 0 ? 'profit-val' : 'stale-data'}">
               ${netProfit >= 0 ? '+' : ''}${Math.round(netProfit).toLocaleString()}
               ${(() => { const avg = craftAvgProfit(c); const onlyAvg = !c.sell_city || netProfit <= 0;
@@ -2977,6 +3020,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       if (snifferOnly && !(e.is_live_sniffer && e.is_profitable)) {
         return false;
       }
+      if (checkedOnly && e.price_verified === false) {
+        return false;
+      }
 
       if (tierFilter !== 'all' && String(e.tier) !== tierFilter) {
         return false;
@@ -3215,7 +3261,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <td>${sellCityDisplay}</td>
             <td class="num">
               ${e.sell_price.toLocaleString()}
-              <button class="btn-edit-price" onclick="promptOverridePrice('${e.target_item_id}', '${e.sell_city}', 1, ${e.sell_price})" title="Override price if different in-game">✏️</button>
+              <button class="btn-edit-price" onclick="promptOverridePrice('${e.target_item_id}', '${e.sell_city}', 1, ${e.live_sell_price || e.sell_price})" title="Override price if different in-game">✏️</button>
+              ${priceNote(e.sell_check, e.live_sell_price, e.sell_price, e.sell_avg7)}
             </td>
             <td class="num ${e.is_profitable ? 'profit-val' : 'stale-data'}" style="font-weight:700;">
               ${e.profit_per_item > 0 ? '+' : ''}${e.profit_per_item.toLocaleString()}
@@ -4418,6 +4465,9 @@ class FlipDataStore:
         raw_config = config if config is not None else self.last_config
         config = self._effective_config(raw_config)
 
+        # Realistic prices: one check against the 7-day sales history for every tab.
+        price_check = PriceCheck.from_history(self.last_history, config, now)
+
         # Flips computed by the caller miss sniffer prices newer than the API and the
         # dashboard's premium setting: redo them from the merged prices when needed.
         if self.last_prices and (sniffer_kept or (raw_config or AppConfig()).premium != config.premium):
@@ -4428,6 +4478,7 @@ class FlipDataStore:
                 now=now,
                 fulfilled_orders=self.fulfilled_orders,
                 price_overrides=self.price_overrides,
+                price_check=price_check,
             )
             prices = self.last_prices
         scans_by_item: dict[str, list[tuple[str, int, datetime]]] = {}
@@ -4452,6 +4503,7 @@ class FlipDataStore:
                 avg_daily_volume=o.avg_daily_volume,
                 risk=o.risk,
                 exit_type=o.exit_type,
+                price_verified=o.price_verified,
             )
 
             is_new = False
@@ -4520,6 +4572,12 @@ class FlipDataStore:
                 "sniffer_age_seconds": sniffer_age_secs,
                 "weight": round(o.weight, 2),
                 "profit_per_kg": round(o.profit_per_kg, 1),
+                "live_buy_price": o.live_buy_price,
+                "live_sell_price": o.live_sell_price,
+                "buy_check": o.buy_check,
+                "sell_check": o.sell_check,
+                "sell_avg7": round(o.sell_avg7) if o.sell_avg7 else None,
+                "price_verified": o.price_verified,
             }
 
 
@@ -4656,6 +4714,10 @@ class FlipDataStore:
                     "quality_nets": c.quality_nets,
                     "quality_exits": c.quality_exits,
                     "expected_profit": round(c.expected_profit, 1),
+                    "live_sell_price": c.live_sell_price,
+                    "sell_check": c.sell_check,
+                    "sell_avg7": round(c.sell_avg7) if c.sell_avg7 else None,
+                    "price_verified": c.price_verified,
                     "city_options": [
                         {**opt, "effective_cost": round(opt["effective_cost"], 1),
                          "profit_per_item": round(opt["profit_per_item"], 1), "margin_pct": round(opt["margin_pct"], 2),
@@ -4702,6 +4764,7 @@ class FlipDataStore:
                     price_overrides=self.price_overrides,
                     history=self.last_history,
                     material_quotes=quotes,
+                    price_check=price_check,
                 )
                 target.extend(serialize_crafts(craft_ops, limit))
 
@@ -4717,6 +4780,7 @@ class FlipDataStore:
                 fulfilled_orders=self.fulfilled_orders,
                 price_overrides=self.price_overrides,
                 item_names=ITEM_NAMES,
+                price_check=price_check,
             )
             # Prioritization & Complete Coverage for Enchanting:
             # 1. Any opportunity where the gear or mat was scanned by the sniffer is prioritized.
@@ -4810,6 +4874,11 @@ class FlipDataStore:
                     "target_daily_volume": round(e.target_daily_volume, 1) if e.target_daily_volume is not None else None,
                     "target_history_missing": e.target_history_missing,
                     "liquidity_status": e.liquidity_status,
+                    "live_base_price": e.live_base_price,
+                    "live_sell_price": e.live_sell_price,
+                    "sell_check": e.sell_check,
+                    "sell_avg7": round(e.sell_avg7) if e.sell_avg7 else None,
+                    "price_verified": e.price_verified,
                 })
 
         with self._lock:

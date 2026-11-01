@@ -25,6 +25,13 @@
     "Brecilien": "medium",
     "Caerleon": "high"
   },
+  "price_check": {
+    "enabled": true,
+    "bait_floor": 0.85,
+    "bait_replace": 0.95,
+    "sell_cap": 1.10,
+    "sell_cap_cross": 1.25
+  },
   "notify_profit_silver": null,
   "web": {
     "enabled": false,

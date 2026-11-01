@@ -34,6 +34,7 @@ from albion_flips.recipes import (
     load_recipe_book,
     return_rate,
 )
+from albion_flips.pricecheck import PriceCheck, seconds_between
 from albion_flips.weights import get_item_weight
 
 
@@ -241,6 +242,7 @@ def analyze_flips(
     now: datetime | None = None,
     fulfilled_orders: dict[tuple[str, str, int], datetime] | None = None,
     price_overrides: dict[tuple[str, str, int], int] | None = None,
+    price_check: PriceCheck | None = None,
 ) -> list[FlipOpportunity]:
     """Analyzes market prices and history to produce ranked flip opportunities.
 
@@ -252,6 +254,12 @@ def analyze_flips(
     5. Drop flips whose destination average daily volume is below min_daily_volume.
        (If history is missing, keep it with volume=None and history_missing=True).
     6. Attach risk labels for both cities.
+
+    Prices are checked against the 7-day average of real sales (pricecheck.py): a
+    bait-cheap buy price is replaced by what you will really pay, and a listing in
+    the destination counts at most a little above what that item really sold for.
+    Flips whose prices cannot be checked (no history anywhere) are marked
+    price_verified=False.
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -279,6 +287,7 @@ def analyze_flips(
 
     tax_rate = config.active_tax_rate
     setup_rate = config.setup_fee_rate
+    check = price_check or PriceCheck.from_history(history_map, config, now)
 
     opportunities: list[FlipOpportunity] = []
 
@@ -297,8 +306,13 @@ def analyze_flips(
             if buy_age is None or buy_age > config.max_price_age_minutes:
                 continue
 
-            buy_price = buy_rec.sell_price_min
             buy_quality = buy_rec.quality
+            checked_buy = check.buy(
+                item_id, buy_rec.city, buy_quality, buy_rec.sell_price_min,
+                live_buy_max=buy_rec.buy_price_max,
+                seconds_between=seconds_between(buy_rec.buy_price_max_date, buy_rec.sell_price_min_date),
+            )
+            buy_price = checked_buy.price
 
             for sell_rec in records:
                 if sell_rec.city == buy_rec.city:
@@ -310,24 +324,25 @@ def analyze_flips(
 
                 # Evaluate Exit 1: Sell Order (sell_price_min in city B)
                 # Listing a sell order in City B requires the exact same quality as purchased
-                opt_order: tuple[float, float, int, float] | None = None
+                opt_order: tuple[float, float, int, float, Any] | None = None
                 if sell_rec.quality == buy_quality:
                     if sell_rec.sell_price_min > 0 and not sell_rec.sell_price_min_date.startswith("0001-01-01"):
                         sell_order_age = calculate_age_minutes(sell_rec.sell_price_min_date, now)
                         if sell_order_age is not None and sell_order_age <= config.max_price_age_minutes:
+                            checked_sell = check.sell_order(item_id, sell_rec.city, sell_rec.quality, sell_rec.sell_price_min)
                             profit_order = calculate_sell_order_profit(
                                 buy_price=buy_price,
-                                sell_price=sell_rec.sell_price_min,
+                                sell_price=checked_sell.price,
                                 tax_rate=tax_rate,
                                 setup_fee_rate=setup_rate,
                             )
                             margin_order = calculate_margin(profit_order, buy_price)
                             flip_order_age = max(buy_age, sell_order_age)
-                            opt_order = (profit_order, margin_order, sell_rec.sell_price_min, flip_order_age)
+                            opt_order = (profit_order, margin_order, checked_sell.price, flip_order_age, checked_sell)
 
                 # Evaluate Exit 2: Instant Sell into Buy Order (buy_price_max in city B)
                 # In Albion Online, any item of quality >= buy order quality can fulfill the buy order!
-                opt_instant: tuple[float, float, int, float] | None = None
+                opt_instant: tuple[float, float, int, float, Any] | None = None
                 if buy_quality >= sell_rec.quality:
                     if sell_rec.buy_price_max > 0 and not sell_rec.buy_price_max_date.startswith("0001-01-01"):
                         instant_age = calculate_age_minutes(sell_rec.buy_price_max_date, now)
@@ -339,7 +354,8 @@ def analyze_flips(
                             )
                             margin_instant = calculate_margin(profit_instant, buy_price)
                             flip_instant_age = max(buy_age, instant_age)
-                            opt_instant = (profit_instant, margin_instant, sell_rec.buy_price_max, flip_instant_age)
+                            checked_bid = check.instant_sell(item_id, sell_rec.city, sell_rec.quality, sell_rec.buy_price_max)
+                            opt_instant = (profit_instant, margin_instant, sell_rec.buy_price_max, flip_instant_age, checked_bid)
 
                 # If neither exit is valid and fresh, skip
                 if opt_order is None and opt_instant is None:
@@ -356,17 +372,17 @@ def analyze_flips(
                     # Choose higher profit exit
                     if opt_order[0] >= opt_instant[0]:
                         chosen_exit = ExitType.SELL_ORDER
-                        chosen_profit, chosen_margin, chosen_sell_price, chosen_age = opt_order
+                        chosen_profit, chosen_margin, chosen_sell_price, chosen_age, chosen_check = opt_order
                     else:
                         chosen_exit = ExitType.INSTANT_SELL
-                        chosen_profit, chosen_margin, chosen_sell_price, chosen_age = opt_instant
+                        chosen_profit, chosen_margin, chosen_sell_price, chosen_age, chosen_check = opt_instant
                 elif opt_order is not None:
                     chosen_exit = ExitType.SELL_ORDER
-                    chosen_profit, chosen_margin, chosen_sell_price, chosen_age = opt_order
+                    chosen_profit, chosen_margin, chosen_sell_price, chosen_age, chosen_check = opt_order
                 else:
                     assert opt_instant is not None
                     chosen_exit = ExitType.INSTANT_SELL
-                    chosen_profit, chosen_margin, chosen_sell_price, chosen_age = opt_instant
+                    chosen_profit, chosen_margin, chosen_sell_price, chosen_age, chosen_check = opt_instant
 
                 # Rule 3: Drop flips with profit below min_profit_silver or margin below min_margin_pct
                 if chosen_profit < config.min_profit_silver or chosen_margin < config.min_margin_pct:
@@ -440,6 +456,12 @@ def analyze_flips(
                         est_daily_profit=est_daily_profit,
                         weight=item_weight,
                         profit_per_kg=profit_kg,
+                        live_buy_price=checked_buy.live,
+                        live_sell_price=chosen_check.live,
+                        buy_check=checked_buy.reason,
+                        sell_check=chosen_check.reason,
+                        sell_avg7=chosen_check.avg7,
+                        price_verified=checked_buy.verified and chosen_check.verified,
                     )
                 )
 
@@ -466,8 +488,13 @@ def calculate_deal_score(
     avg_daily_volume: float | None,
     risk: str,
     exit_type: ExitType,
+    price_verified: bool = True,
 ) -> tuple[int, str, str]:
-    """Calculates a 0-100 quality score, tier label ('S', 'A', 'B', 'C'), and friendly badge for a flip."""
+    """Calculates a 0-100 quality score, tier label ('S', 'A', 'B', 'C'), and friendly badge for a flip.
+
+    A flip whose prices could not be checked against real sales (price_verified=False)
+    is at most 'C' (speculative): its listing price is only what someone asks.
+    """
     score = 0.0
 
     # Freshness factor (max 40 pts)
@@ -536,6 +563,8 @@ def calculate_deal_score(
 
     if avg_daily_volume == 0.0:
         return min(35, final_score), "D", "💀 DEAD ITEM"
+    elif not price_verified:
+        return min(41, final_score), "C", "❔ UNVERIFIED PRICE"
     elif final_score >= 80:
         return final_score, "S", "🌟 TOP PICK"
     elif final_score >= 62:
@@ -560,25 +589,30 @@ def build_market_index(
     now: datetime,
     max_age_minutes: float,
     quality: int = 1,
-) -> tuple[dict[str, tuple[int, str]], dict[str, tuple[int, str, float, bool]]]:
+    check: PriceCheck | None = None,
+) -> tuple[dict[str, tuple[int, str]], dict[str, tuple[int, str, float, bool, Any]]]:
     """Indexes fresh quotes for one quality.
 
     Returns:
         buy_index:  item_id -> (cheapest instant-buy price, city)   [lowest sell order]
-        sell_index: item_id -> (gross price, city, net silver after tax/fees, is_instant)
+        sell_index: item_id -> (gross price, city, net silver after tax/fees, is_instant, Checked)
                     for the most lucrative exit: a sell order, a city buy order, or a
-                    Black Market buy order.
+                    Black Market buy order. With ``check``, sell orders count at most a
+                    little above the item's 7-day average (pricecheck.py).
     """
     tax_rate = config.active_tax_rate
     setup_rate = config.setup_fee_rate
     buy_index: dict[str, tuple[int, str]] = {}
-    sell_index: dict[str, tuple[int, str, float, bool]] = {}
+    sell_index: dict[str, tuple[int, str, float, bool, Any]] = {}
+    check = check or PriceCheck(enabled=False)
 
     def offer_exit(item_id: str, gross: int, city: str, instant: bool) -> None:
+        checked = (check.instant_sell if instant else check.sell_order)(item_id, city, quality, gross)
+        gross = checked.price
         net = gross * (1.0 - tax_rate - (0.0 if instant else setup_rate))
         current = sell_index.get(item_id)
         if current is None or net > current[2]:
-            sell_index[item_id] = (gross, city, net, instant)
+            sell_index[item_id] = (gross, city, net, instant, checked)
 
     for p in prices:
         if p.quality != quality:
@@ -622,7 +656,8 @@ def quality_chances(rolls: int = 1) -> list[float]:
 
 
 def quality_exit_index(
-    prices: Sequence[PriceRecord], config: AppConfig, now: datetime, max_age_minutes: float
+    prices: Sequence[PriceRecord], config: AppConfig, now: datetime, max_age_minutes: float,
+    check: PriceCheck | None = None,
 ) -> dict[str, list[tuple[float, str] | None]]:
     """item_id -> best (net silver, description) for an item of quality 1..5.
 
@@ -643,7 +678,13 @@ def quality_exit_index(
         if _fresh(p.buy_price_max, p.buy_price_max_date, now, max_age_minutes):
             offer(p.item_id, p.quality, p.buy_price_max * (1.0 - tax), f"{p.city} buy order {p.buy_price_max:,}")
         if p.city != "Black Market" and _fresh(p.sell_price_min, p.sell_price_min_date, now, max_age_minutes):
-            offer(p.item_id, p.quality, p.sell_price_min * (1.0 - tax - setup), f"{p.city} sell order {p.sell_price_min:,}")
+            listed = p.sell_price_min
+            if check is not None:
+                listed = check.sell_order(p.item_id, p.city, p.quality, listed).price
+            desc = f"{p.city} sell order {listed:,}"
+            if listed != p.sell_price_min:
+                desc += f" (listed {p.sell_price_min:,})"
+            offer(p.item_id, p.quality, listed * (1.0 - tax - setup), desc)
 
     for item_id, slots in raw.items():
         best: tuple[float, str] | None = None
@@ -665,6 +706,7 @@ def analyze_crafting(
     recipe_book: RecipeBook | None = None,
     history: Sequence[HistoryRecord] | Mapping[tuple[str, str, int], HistoryRecord] | None = None,
     material_quotes: Collection[tuple[str, str]] | None = None,
+    price_check: PriceCheck | None = None,
 ) -> list[CraftingOpportunity]:
     """Calculates crafting and refining profit for every recipe in the game data.
 
@@ -683,6 +725,9 @@ def analyze_crafting(
     - Returnable ingredients cost (1 - return rate), non-returnable ones cost full price.
     - material_quotes, when given, limits material prices to these (item_id, city) pairs
       (used for "sniffer scans only").
+    - Prices are checked against real sales (pricecheck.py): bait-cheap materials count
+      at what you will really pay, and a listed output at most a little above its
+      7-day average. Outputs without any sales history are price_verified=False.
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -697,30 +742,35 @@ def analyze_crafting(
         fulfilled_orders=fulfilled_orders,
         price_overrides=price_overrides,
     )
-    buy_index, sell_index = build_market_index(
-        clean_prices, config, now, max_age_minutes=config.craft_max_price_age_minutes
-    )
-    quality_exits = quality_exit_index(clean_prices, config, now, config.craft_max_price_age_minutes)
-    chances = quality_chances(1)
-    tax_rate = config.active_tax_rate
     history_map: Mapping[tuple[str, str, int], HistoryRecord] = {}
     if history:
         history_map = history if isinstance(history, Mapping) else {(h.item_id, h.location, h.quality): h for h in history}
+    check = price_check or PriceCheck.from_history(history_map, config, now)
+    buy_index, sell_index = build_market_index(
+        clean_prices, config, now, max_age_minutes=config.craft_max_price_age_minutes, check=check
+    )
+    quality_exits = quality_exit_index(clean_prices, config, now, config.craft_max_price_age_minutes, check=check)
+    chances = quality_chances(1)
+    tax_rate = config.active_tax_rate
     no_city_bonus = DEFAULT_BASE_BONUS + (FOCUS_BONUS if focus else 0.0)
     allowed = set(material_quotes) if material_quotes is not None else None
 
     # item_id -> {city: cheapest fresh sell order}. Ingredients of any quality work in a
     # recipe (e.g. a Good base cape for a faction cape), so every quality counts.
     city_prices: dict[str, dict[str, int]] = {}
+    price_notes: dict[tuple[str, str], tuple[int, str]] = {}  # (item, city) -> (live price, check reason)
     for p in clean_prices:
         if p.city == "Black Market":
             continue
         if allowed is not None and (p.item_id, p.city) not in allowed:
             continue
         if _fresh(p.sell_price_min, p.sell_price_min_date, now, config.craft_max_price_age_minutes):
+            paid = check.buy(p.item_id, p.city, p.quality, p.sell_price_min, live_buy_max=p.buy_price_max,
+                             seconds_between=seconds_between(p.buy_price_max_date, p.sell_price_min_date))
             by_city = city_prices.setdefault(p.item_id, {})
-            if p.city not in by_city or p.sell_price_min < by_city[p.city]:
-                by_city[p.city] = p.sell_price_min
+            if p.city not in by_city or paid.price < by_city[p.city]:
+                by_city[p.city] = paid.price
+                price_notes[(p.item_id, p.city)] = (paid.live, paid.reason if paid.adjusted else "")
 
     def cheapest(item_id: str) -> tuple[int, str] | None:
         by_city = city_prices.get(item_id)
@@ -737,7 +787,7 @@ def analyze_crafting(
             continue
         if exit_quote is None:
             # Nobody buys a Normal one: only better rolls sell (see quality_nets).
-            exit_quote = (0, "", 0.0, True)
+            exit_quote = (0, "", 0.0, True, None)
         q_nets = [e[0] if e else 0.0 for e in q_exits] if q_exits else [0.0] * 5
         expected_revenue = sum(ch * n for ch, n in zip(chances, q_nets))
         if focus and recipe.focus <= 0:
@@ -776,7 +826,7 @@ def analyze_crafting(
             continue  # no city sells all the local materials
         candidates.sort(key=lambda cand: cand[0])
         _, craft_city, bonus, picks = candidates[0]
-        sell_price, sell_city, _, instant = exit_quote
+        sell_price, sell_city, _, instant, sell_checked = exit_quote
         setup_rate = 0.0 if instant else config.setup_fee_rate
 
         def city_numbers(cand_bonus: float, cand_picks: list[tuple[str, int, bool, int, str]]) -> tuple[float, float, float, float, float]:
@@ -824,6 +874,8 @@ def analyze_crafting(
                 "city": src,
                 "returnable": bool(returnable),
                 "bought_elsewhere": res_id in special,
+                "live_price": price_notes.get((res_id, src), (price, ""))[0],
+                "price_check": price_notes.get((res_id, src), (price, ""))[1],
             })
 
         rrr = return_rate(bonus) if returnable_cost > 0 else 0.0
@@ -875,6 +927,10 @@ def analyze_crafting(
                 quality_nets=[round(n, 1) for n in q_nets],
                 quality_exits=[e[1] if e else "" for e in q_exits] if q_exits else [""] * 5,
                 expected_profit=float(expected_revenue - effective_cost),
+                live_sell_price=sell_checked.live if sell_checked else sell_price,
+                sell_check=sell_checked.reason if sell_checked else "",
+                sell_avg7=sell_checked.avg7 if sell_checked else None,
+                price_verified=bool(instant or (sell_checked and sell_checked.verified)),
             )
         )
 
@@ -939,6 +995,7 @@ def analyze_enchanting(
     custom_rune_prices: dict[str, int] | None = None,
     item_names: dict[str, str] | None = None,
     mass_batch_size: int = 10,
+    price_check: PriceCheck | None = None,
 ) -> tuple[list[EnchantingOpportunity], dict[str, Any]]:
     """Analyzes enchanting profitability across all monitored cities and the Black Market.
 
@@ -950,6 +1007,9 @@ def analyze_enchanting(
     - Quotes older than config.craft_max_price_age_minutes are ignored.
     - Opportunities are only computed with real (live or user-entered) material prices;
       DEFAULT_RUNE_PRICES are reference values for the ticker only.
+    - Prices are checked against real sales (pricecheck.py): bait-cheap base items and
+      materials count at what you will really pay; a listed result at most a little
+      above its 7-day average. Results without sales history are price_verified=False.
 
     Returns:
         (opportunities, material_status_dict)
@@ -975,6 +1035,8 @@ def analyze_enchanting(
             history_map = history
         else:
             history_map = {(h.item_id, h.location, h.quality): h for h in history}
+
+    check = price_check or PriceCheck.from_history(history_map, config, now)
 
     def get_target_volume_info(t_id: str, dest_city: str, quality: int) -> tuple[float | None, bool, str]:
         if not history_map:
@@ -1006,7 +1068,8 @@ def analyze_enchanting(
             continue
         if not _fresh(p.sell_price_min, p.sell_price_min_date, now, max_age):
             continue
-        price = p.sell_price_min
+        price = check.buy(mat_id, p.city, p.quality, p.sell_price_min, live_buy_max=p.buy_price_max,
+                          seconds_between=seconds_between(p.buy_price_max_date, p.sell_price_min_date)).price
         if price < city_mats.get((mat_id, p.city), price + 1):
             city_mats[(mat_id, p.city)] = price
         if mat_id not in cheapest_mats or price < cheapest_mats[mat_id][0]:
@@ -1045,6 +1108,7 @@ def analyze_enchanting(
 
     # 2. Index fresh gear prices by (item, city, quality)
     city_item_sell: dict[tuple[str, str, int], tuple[int, str]] = {}
+    city_item_live: dict[tuple[str, str, int], PriceRecord] = {}
     bm_buy: dict[tuple[str, int], tuple[int, str]] = {}
     all_keys: set[tuple[str, int]] = set()
 
@@ -1053,6 +1117,7 @@ def analyze_enchanting(
             continue
         if p.city != "Black Market" and _fresh(p.sell_price_min, p.sell_price_min_date, now, max_age):
             city_item_sell[(p.item_id, p.city, p.quality)] = (p.sell_price_min, p.sell_price_min_date)
+            city_item_live[(p.item_id, p.city, p.quality)] = p
             all_keys.add((p.item_id, p.quality))
         if p.city == "Black Market" and _fresh(p.buy_price_max, p.buy_price_max_date, now, max_age):
             key = (p.item_id, p.quality)
@@ -1094,7 +1159,10 @@ def analyze_enchanting(
         human = human_name(base_stem, item_names)
         step_mats = {1: f"T{tier}_RUNE", 2: f"T{tier}_SOUL", 3: f"T{tier}_RELIC"}
 
-        for city, buy_cost in sell_by_item_quality.get((raw_id, quality), []):
+        for city, live_cost in sell_by_item_quality.get((raw_id, quality), []):
+            rec = city_item_live[(raw_id, city, quality)]
+            buy_cost = check.buy(raw_id, city, quality, live_cost, live_buy_max=rec.buy_price_max,
+                                 seconds_between=seconds_between(rec.buy_price_max_date, rec.sell_price_min_date)).price
             for to_enchant in range(from_enchant + 1, 4):
                 target_id = f"{base_stem}@{to_enchant}"
                 mat_ids = [step_mats[lvl] for lvl in range(from_enchant + 1, to_enchant + 1)]
@@ -1106,15 +1174,16 @@ def analyze_enchanting(
                 mat_desc = " + ".join(
                     f"{mat_qty}x {MATERIAL_NAMES.get(m, m)} (@ {int(u):,}s)" for m, u in zip(mat_ids, unit_prices)
                 )
-                exits: list[tuple[str, int, str | None, bool]] = []
+                exits: list[tuple[str, int, str | None, bool, Any]] = []
                 local = city_item_sell.get((target_id, city, quality))
                 if local:
-                    exits.append((city, local[0], local[1], False))
+                    listed = check.sell_order(target_id, city, quality, local[0])
+                    exits.append((city, listed.price, local[1], False, listed))
                 bm = best_bm_order(target_id, quality)
                 if bm:
-                    exits.append(("Black Market", bm[0], bm[1], True))
+                    exits.append(("Black Market", bm[0], bm[1], True, check.instant_sell(target_id, "Black Market", quality, bm[0])))
 
-                for sell_city, sell_price, date_str, is_bm in exits:
+                for sell_city, sell_price, date_str, is_bm, sold in exits:
                     tot_cost, profit, margin = calculate_enchanting_profit(
                         base_item_price=buy_cost,
                         enchant_mat_cost=total_mat_cost,
@@ -1153,6 +1222,11 @@ def analyze_enchanting(
                         target_history_missing=t_missing,
                         liquidity_status=t_liq,
                         quality=quality,
+                        live_base_price=live_cost,
+                        live_sell_price=sold.live,
+                        sell_check=sold.reason,
+                        sell_avg7=sold.avg7,
+                        price_verified=sold.verified,
                     ))
 
     opportunities.sort(key=lambda o: (o.is_profitable, o.profit_per_item, o.margin_pct), reverse=True)

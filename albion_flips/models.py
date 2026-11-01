@@ -93,6 +93,13 @@ class FlipOpportunity:
     est_daily_profit: float = 0.0
     weight: float = 0.5
     profit_per_kg: float = 0.0
+    # Price check (pricecheck.py): live quotes before the check and why they were changed
+    live_buy_price: int = 0
+    live_sell_price: int = 0
+    buy_check: str = ""
+    sell_check: str = ""
+    sell_avg7: float | None = None
+    price_verified: bool = True
 
 
 @dataclass(slots=True)
@@ -129,6 +136,11 @@ class CraftingOpportunity:
     quality_nets: list[float] = field(default_factory=list)
     quality_exits: list[str] = field(default_factory=list)
     expected_profit: float = 0.0  # average over base quality odds (one roll)
+    # Price check (pricecheck.py) of the output's sale
+    live_sell_price: int = 0
+    sell_check: str = ""
+    sell_avg7: float | None = None
+    price_verified: bool = True
 
 
 @dataclass(slots=True)
@@ -163,5 +175,11 @@ class EnchantingOpportunity:
     target_history_missing: bool = True
     liquidity_status: str = "untracked"
     quality: int = 1
+    # Price check (pricecheck.py)
+    live_base_price: int = 0
+    live_sell_price: int = 0
+    sell_check: str = ""
+    sell_avg7: float | None = None
+    price_verified: bool = True
 
 

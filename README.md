@@ -30,6 +30,7 @@ A real-time market analysis tool and interactive web dashboard for **Albion Onli
   - **1-Click Copy**: Dedicated copy buttons for both the gear item and the exact enchanting material.
 - ⚡ **Live Network Sniffer Integration**: Built-in status indicator and guide for pairing with the open-source `albiondata-client` for real-time 0-second market updates.
 - 🌐 **Interactive Web Dashboard**: Fast, responsive dark-mode dashboard running locally at `http://127.0.0.1:8765` (bound to this PC only, never the LAN).
+- ✅ **Realistic Prices**: Every profit (flips, Black Market, crafting, enchanting) is checked against what the item really sold for over the last 7 days (AODP daily history). A listing in the destination counts at most 10% above that city's 7-day average (25% above the median of other cities when the city itself has no sales); a buy price far below the average (bait or already bought out) counts at what you will really pay. Changed prices show the live listing and the 7-day average under the price. Deals whose item has not sold anywhere in 7 days are marked *unverified* and hidden by the **✓ Checked Prices Only** button (on by default). Instant sales into buy orders are never capped. Tune or turn off under `"price_check"` in `config.json`.
 - ⚙️ **Configurable Tax & Fees**: Accurately factors in Premium tax (4%), non-premium tax (8%), and listing setup fees (2.5%).
 - 💎 **Premium Tax Button**: The header button switches every tab between Premium (4%) and normal (8%) market tax; all profits are shown after tax, and crafting/enchanting rows show the tax taken. The choice is remembered (it overrides `"premium"` in config.json).
 - 📡 **Sniffer Scans Only**: Shows only the profitable deals whose prices were captured by your local sniffer in the last hour, best profit first. Sniffer prices also stay in use after an API refresh until the API catches up.
@@ -287,6 +288,13 @@ This automated script will:
     "Thetford": "low",
     "Brecilien": "medium",
     "Caerleon": "high"
+  },
+  "price_check": {
+    "enabled": true,                    // Check live prices against the 7-day average of real sales
+    "bait_floor": 0.85,                 // A buy price below 85% of the average is not trusted...
+    "bait_replace": 0.95,               // ...and counted at 95% of the average
+    "sell_cap": 1.10,                   // A listing counts at most 10% above the city's average
+    "sell_cap_cross": 1.25              // ...or 25% above other cities' median when the city has no sales
   },
   "notify_profit_silver": null,         // Profit threshold for notifications (null disables audio/popups)
   "web": {
